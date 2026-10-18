@@ -1,0 +1,16 @@
+name = "tlmgr"
+abbr = "tl"
+requires = "tlmgr"
+
+[actions]
+h = "tlmgr --help"
+is = "tlmgr install {0}"
+us = "tlmgr remove {0}"
+up = "tlmgr update --all"
+ups = "tlmgr update --all --self"
+ck = "tlmgr check"
+lsa = "tlmgr list {0}"
+ls = "tlmgr list --only-installed"
+if = "tlmgr info {0}"
+ifc = "tlmgr info collections"
+ifs = "tlmgr info schemes"

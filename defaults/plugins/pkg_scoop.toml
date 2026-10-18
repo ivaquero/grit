@@ -1,0 +1,13 @@
+name = "scoop"
+abbr = "s"
+requires = "scoop"
+
+[actions]
+is = "scoop install {0}"
+us = "scoop uninstall {0}"
+up = "scoop update"
+ups = "scoop update *"
+ls = "scoop list"
+sc = "scoop search {0}"
+if = "scoop info {0}"
+cl = "scoop cleanup *"

@@ -1,0 +1,14 @@
+name = "ollama"
+abbr = "ol"
+requires = "ollama"
+
+[actions]
+h = "ollama help {0}"
+ls = "ollama list"
+if = "ollama show {0}"
+r = "ollama run {0}"
+a = "ollama create {0}"
+rm = "ollama rm {0}"
+st = "ollama ps"
+ps = "ollama push {0}"
+pl = "ollama pull {0}"

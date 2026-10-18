@@ -1,0 +1,8 @@
+goboot.exe
+goboot
+out.sh
+out.ps1
+custom.toml
+.tmp-conv/
+out.*
+.workbuddy

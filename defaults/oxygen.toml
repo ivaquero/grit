@@ -1,0 +1,5 @@
+# catalyze / propagate 的源：Goboot 自带的配置模板。
+# key = gb + <ELEMENT key>，路径相对 GOBOOT 根目录。
+
+[files]
+gbg = "defaults/files/gitconfig"

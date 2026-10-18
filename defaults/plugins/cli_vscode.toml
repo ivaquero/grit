@@ -1,0 +1,8 @@
+name = "vscode"
+abbr = "vs"
+requires = "code"
+
+[actions]
+is = "code --install-extension {0}"
+us = "code --uninstall-extension {0}"
+ls = "code --list-extensions"

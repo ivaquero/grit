@@ -1,0 +1,12 @@
+name = "rustup"
+abbr = "rs"
+requires = "rustup"
+
+[actions]
+h = "rustup help {0}"
+is = "rustup component add {0}"
+us = "rustup component remove {0}"
+ls = "rustup component list"
+up = "rustup update"
+ck = "rustup check"
+r = "rustup run {0}"

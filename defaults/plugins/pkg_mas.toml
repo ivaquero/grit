@@ -1,0 +1,13 @@
+name = "mas"
+abbr = "m"
+requires = "mas"
+os = "darwin"
+
+[actions]
+h = "mas help"
+is = "mas install {0}"
+us = "mas uninstall {0}"
+up = "mas upgrade {0}"
+sc = "mas search {0}"
+if = "mas info {0}"
+st = "mas outdated"

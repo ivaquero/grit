@@ -1,0 +1,39 @@
+# GOBOOT_ELEMENT 注册表：平台差异在这里表达，不在代码里。
+# unix / win 缺省表示该平台不注册这一项。
+
+[[element]]
+key = "zs"
+unix = "~/.zshrc"
+
+[[element]]
+key = "bs"
+unix = "~/.bashrc"
+
+[[element]]
+key = "ps"
+win = "~/Documents/WindowsPowerShell/profile.ps1"
+
+[[element]]
+key = "g"
+unix = "~/.gitconfig"
+win = "~/.gitconfig"
+
+[[element]]
+key = "vi"
+unix = "~/.vimrc"
+win = "~/.vimrc"
+
+[[element]]
+key = "wz"
+unix = "~/.wezterm.lua"
+win = "~/.wezterm.lua"
+
+[[element]]
+key = "ss"
+unix = "~/.config/starship.toml"
+win = "~/.config/starship.toml"
+
+[[element]]
+key = "dr"
+unix = "~/.docker/config.json"
+win = "~/.docker/config.json"

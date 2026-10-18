@@ -1,0 +1,100 @@
+# 格式转换：goboot conv <name> <file>
+# 输出与输入同目录，扩展名替换为 ext。
+# 同名多条规则时，in_ext 精确匹配优先，不带 in_ext 的作默认。
+
+[[convert]]
+name = "tohtml"
+ext = "html"
+tool = "pandoc"
+args = [
+  "{in}", "-o", "{out}",
+  "--to", "html5", "--standalone", "--mathjax", "--shift-heading-level-by=-1",
+]
+
+[[convert]]
+name = "todocx"
+ext = "docx"
+tool = "pandoc"
+args = ["{in}", "-o", "{out}"]
+
+[[convert]]
+name = "totyp"
+ext = "typ"
+tool = "pandoc"
+args = ["{in}", "-o", "{out}"]
+
+[[convert]]
+name = "topdf"
+ext = "pdf"
+tool = "pandoc"
+engine = true
+args = [
+  "{in}", "-o", "{out}",
+  "--pdf-engine={engine}",
+  "--syntax-highlighting", "tango",
+  "-V", "colorlinks",
+  "-V", "urlcolor=NavyBlue",
+  "-V", "geometry:a4paper",
+  "-V", "geometry:margin=2.5cm",
+  "-V", "CJKmainfont=STFangsong",
+]
+
+[[convert]]
+name = "tomd"
+ext = "md"
+tool = "pandoc"
+args = ["{in}", "-o", "{out}"]
+
+# .ipynb 不能走 pandoc，改用 jupytext。
+[[convert]]
+name = "tomd"
+in_ext = "ipynb"
+ext = "md"
+tool = "jupytext"
+args = ["--to", "md", "{in}"]
+
+[[convert]]
+name = "toipynb"
+ext = "ipynb"
+tool = "jupytext"
+args = ["--to", "notebook", "{in}"]
+
+[[convert]]
+name = "topng"
+ext = "png"
+tool = "magick"
+args = ["{in}", "{out}"]
+
+[[convert]]
+name = "tojpg"
+ext = "jpg"
+tool = "magick"
+args = ["{in}", "{out}"]
+
+[[convert]]
+name = "tomp3"
+ext = "mp3"
+tool = "ffmpeg"
+args = ["-hide_banner", "-i", "{in}", "-c:a", "libmp3lame", "-b:a", "192K", "{out}"]
+
+[[convert]]
+name = "tomp4"
+ext = "mp4"
+tool = "ffmpeg"
+args = ["-hide_banner", "-fflags", "+genpts", "-i", "{in}", "-r", "24", "{out}"]
+
+# marimo 把结果写到 stdout，由 goboot 负责落盘。
+[[convert]]
+name = "ipynb2py"
+in_ext = "ipynb"
+ext = "py"
+tool = "marimo"
+stdout = true
+args = ["convert", "{in}"]
+
+[[convert]]
+name = "py2html"
+ext = "html"
+tool = "marimo"
+stdout = true
+args = ["export", "html", "{in}"]

@@ -1,0 +1,65 @@
+# 纯转发别名：没有逻辑、没有平台分支，一份声明生成所有 shell 的语法。
+# 新增一条别名 = 加一个 [[alias]] 块，不需要碰任何 .sh / .ps1。
+
+[[alias]]
+name = "ll"
+cmd = "lsd -l"
+
+[[alias]]
+name = "la"
+cmd = "lsd -a"
+
+[[alias]]
+name = "lla"
+cmd = "lsd -la"
+
+[[alias]]
+name = "cat"
+cmd = "bat"
+
+[[alias]]
+name = "g"
+cmd = "git"
+
+[[alias]]
+name = "hf"
+cmd = "hyperfine"
+
+[[alias]]
+name = "ff"
+cmd = "fastfetch"
+
+[[alias]]
+name = "man"
+cmd = "tldr"
+
+[[alias]]
+name = "zpf"
+cmd = "ouch compress"
+
+[[alias]]
+name = "zpfr"
+cmd = "ouch decompress"
+
+[[alias]]
+name = "zpfls"
+cmd = "ouch list"
+
+# L2 文件动作的短名，等价于 goboot file <action>。
+# 生成的仍是原生 alias / function，参数由 shell 自动追加。
+
+[[alias]]
+name = "epf"
+cmd = "goboot file backup"
+
+[[alias]]
+name = "ipf"
+cmd = "goboot file restore"
+
+[[alias]]
+name = "iif"
+cmd = "goboot file catalyze"
+
+[[alias]]
+name = "ppgf"
+cmd = "goboot file propagate"

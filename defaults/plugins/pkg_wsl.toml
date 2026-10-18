@@ -1,0 +1,10 @@
+name = "wsl"
+abbr = "wsl"
+requires = "wsl"
+os = "windows"
+
+[actions]
+is = "wsl --install {0}"
+us = "wslconfig /u {0}"
+ls = "wsl --list -v"
+lsa = "wsl --list --online"

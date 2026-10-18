@@ -1,0 +1,13 @@
+name = "brew"
+abbr = "b"
+requires = "brew"
+
+[actions]
+is = "brew install {0}"
+us = "brew uninstall {0}"
+up = "brew upgrade"
+ls = "brew list"
+lx = "brew leaves"
+sc = "brew search {0}"
+if = "brew info {0}"
+cl = "brew cleanup"

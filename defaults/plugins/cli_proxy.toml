@@ -1,0 +1,7 @@
+# 代理设置必须回写父 shell，是 L3 的典型场景。
+# 端口别名（c / m / v）从 custom.toml 的 proxy_ports 查。
+name = "proxy"
+abbr = "p"
+
+[state]
+pxy = "{self} shell proxy {0}"
