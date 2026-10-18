@@ -4,6 +4,42 @@
 
 目标：**消灭 `.sh` / `.ps1` 双实现**。逻辑只存在 Go 里，shell 代码全部由 `goboot init` 生成。
 
+## 日常开发全景
+
+装配只发生在 shell 启动那一刻：`goboot init` 把 TOML 一次性翻成纯 shell 代码，之后命令都在启动脚本内部展开，不再逐次读配置。
+
+```mermaid
+flowchart LR
+    subgraph decl["声明式配置 · 全部内嵌进二进制"]
+        d1["defaults/*.toml<br/>alias / registry / oxygen / convert / plugins"]
+        d2["custom.toml<br/>oxides / 代理端口 / 平台开关"]
+    end
+
+    g["goboot init --shell bash / zsh / pwsh"]
+
+    d1 --> g
+    d2 --> g
+    g --> s["shell 启动脚本<br/>eval 一次，此后不再变"]
+
+    s --> l1["L1 原生 alias"]
+    s --> l2["L2 命令短名<br/>epf / ipf / iif / ppgf"]
+    s --> l3["L3 state 包装<br/>ceat / ceq / pxy"]
+
+    l1 --> u1["直接 exec 原生工具<br/>零额外进程"]
+    l2 --> u2["短名展开为 goboot 子命令<br/>file / conv"]
+    l3 --> u3["取回 shell 代码再 eval<br/>环境 / 工作目录 / 代理"]
+
+    classDef hot fill:#fde68a,stroke:#b45309,color:#111827
+    classDef cold fill:#e0e7ff,stroke:#4338ca,color:#111827
+    class g,s cold
+    class u1,u2,u3 hot
+```
+
+日常开发分两条时间线：
+
+1. **冷路径** —— 改了 `custom.toml` 或 `defaults/*.toml`、跑过 `goboot self-update` 之后，重跑一次 `goboot init`。不重生成，改动就不生效。
+2. **热路径** —— `ll`（L1，纯 alias，零额外进程）、`epf g`（L2，一次短命 `goboot file`）、`ceat kaggle`（L3，一次 `goboot state` + `eval`）。日常敲击绝大多数落在 L1。
+
 ## 边界：什么必须留在 shell 里
 
 子进程无法修改父进程的环境变量、工作目录与 alias。所以下面这些**永远**是 shell 代码：
@@ -63,13 +99,27 @@ L2 的全部逻辑就是这四张表之间怎么配对。键带各自前缀，�
 |---|---|---|---|
 | `backup` | `element[key]` | `backup/oxides[bk+key]` | `epf` |
 | `restore` | `backup/oxides[bk+key]` | `element[key]` | `ipf` |
-| `catalyze` | `oxygen[goboot+key]` | `element[key]` | `iif` |
-| `propagate` | `oxygen[goboot+key]` | `backup/oxides[bk+key]` | `ppgf` |
+| `catalyze` | `oxygen[gb+key]` | `element[key]` | `iif` |
+| `propagate` | `oxygen[gb+key]` | `backup/oxides[bk+key]` | `ppgf` |
 
 - `element` 来自 `registry.toml`（真实配置路径，平台相关）
 - `oxides` 来自 `custom.toml`（备份相对路径）
 - `oxygen` 来自 `oxygen.toml`（默认模板，相对 GOBOOT）
 - 备份根来自 `custom.toml` 的 `oxide_folder` / `oxide_folder_win`
+
+```mermaid
+flowchart LR
+    o["oxygen<br/>oxygen.toml<br/>默认模板"]
+    e["element<br/>registry.toml<br/>真实配置路径"]
+    x["oxides<br/>备份根 + bk 前缀"]
+
+    o -->|"catalyze · iif"| e
+    e -->|"backup · epf"| x
+    x -->|"restore · ipf"| e
+    o -->|"propagate · ppgf"| x
+```
+
+四条边就是四个动作，方向即语义：`oxygen` 只出不进，`element` 是唯一的落地点，`oxides` 只做归档。
 
 目录与文件由 `os.Stat` 判定，不依赖 `_` 后缀约定；目录复制前会清空目标。
 
