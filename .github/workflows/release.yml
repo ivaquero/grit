@@ -2,13 +2,15 @@ name: release
 
 on:
   push:
-    branches: [master, main]
     tags: ["v*"]
-  pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: write
+
+# 同一个 tag 不并发发布；后到的排队而不是取消，避免半成品 release。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -29,113 +31,78 @@ jobs:
       - name: go test
         run: go test ./...
 
-  release:
-    name: release
+  goreleaser:
+    name: goreleaser
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Cross-compile
+      # 编译、归档、校验和、changelog、创建 GitHub Release，全部由 .goreleaser.yaml 声明。
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Scoop manifest 由 checksums 反推，随 release 一起分发；
+      # 想进 bucket 时把 grit.json 拷进 scoop bucket 的 bucket/ 目录即可。
+      - name: Generate Scoop manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          mkdir -p dist
+          version="${TAG#v}"
+          zip="grit_${version}_windows_amd64.zip"
+          sha=$(grep -F "  ${zip}" dist/sha256sums.txt | cut -d' ' -f1)
+          if [ -z "$sha" ]; then
+            echo "no checksum for ${zip}" >&2
+            exit 1
+          fi
 
-          build() {
-            local goos="$1" goarch="$2"
-            local bin="goboot"
-            # 注意不能用 `[ ... ] && bin=...`：set -e 下条件为假会直接退出。
-            if [ "$goos" = "windows" ]; then
-              bin="goboot.exe"
-            fi
-
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath \
-                -ldflags "-s -w -X main.version=$VERSION" \
-                -o "dist/$bin" .
-
-            local name="ox_${VERSION}_${goos}_${goarch}"
-            if [ "$goos" = "windows" ]; then
-              ( cd dist && zip -q "${name}.zip" "$bin" && rm "$bin" )
-            else
-              ( cd dist && tar -czf "${name}.tar.gz" "$bin" && rm "$bin" )
-            fi
-            echo "built ${name}"
-          }
-
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            build "${target%/*}" "${target#*/}"
-          done
-
-          ( cd dist && sha256sum -- * > sha256sums.txt )
-          cat dist/sha256sums.txt
-
-      - name: Generate scoop manifest
-        run: |
-          set -euo pipefail
-          SHA=$(grep "windows_amd64.zip" dist/sha256sums.txt | cut -d' ' -f1)
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/ox_${VERSION}_windows_amd64.zip"
-          cat > dist/goboot.json <<EOF
+          cat > dist/grit.json <<EOF
           {
-            "version": "${VERSION}",
-            "description": "Dotfile and computing environment manager",
-            "homepage": "https://github.com/${GITHUB_REPOSITORY}",
+            "version": "${version}",
+            "description": "Declarative shell and dotfile environment manager",
+            "homepage": "https://github.com/${REPO}",
             "license": "GPL-3.0-or-later",
             "architecture": {
               "64bit": {
-                "url": "${URL}",
-                "hash": "${SHA}"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/${zip}",
+                "hash": "${sha}"
               }
             },
-            "bin": "goboot.exe",
-            "checkver": "github",
+            "bin": "grit.exe",
+            "checkver": {
+              "github": "https://github.com/${REPO}"
+            },
             "autoupdate": {
               "architecture": {
                 "64bit": {
-                  "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/v\$version/ox_\$version_windows_amd64.zip"
+                  "url": "https://github.com/${REPO}/releases/download/v\$version/grit_\$version_windows_amd64.zip"
                 }
               }
             }
           }
           EOF
-          cat dist/goboot.json
-
-      - name: Publish
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/ox_*.tar.gz
-            dist/ox_*.zip
-            dist/sha256sums.txt
-            dist/goboot.json
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          body: |
-            Cross-compiled binaries for six targets. Verify against `sha256sums.txt`.
-
-            macOS / Linux:
-
-            ```sh
-            tar -xzf ox_<version>_<os>_<arch>.tar.gz
-            install -m 755 goboot ~/.local/bin/goboot
-            ```
-
-            Windows:
-
-            ```powershell
-            scoop install ./goboot.json
-            ```
+          cat dist/grit.json
+          gh release upload "$TAG" dist/grit.json --clobber
 
       - name: Keep archives as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: goboot-${{ github.ref_name }}
+          name: grit-${{ github.ref_name }}
           path: dist/
           retention-days: 14

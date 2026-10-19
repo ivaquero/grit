@@ -1,4 +1,4 @@
-// Package config 定义 Goboot 的唯一真源：全部行为由 TOML 声明，shell 语法不出现于此。
+// Package config 定义 Grit 的唯一真源：全部行为由 TOML 声明，shell 语法不出现于此。
 package config
 
 import (
@@ -38,11 +38,11 @@ type Convert struct {
 	Requires string   `toml:"requires"`
 	Args     []string `toml:"args"`
 	Engine   bool     `toml:"engine"` // 需要探测 pdf 引擎
-	Stdout   bool     `toml:"stdout"` // 命令把结果写到 stdout，由 goboot 落盘
+	Stdout   bool     `toml:"stdout"` // 命令把结果写到 stdout，由 grit 落盘
 	OS       string   `toml:"os"`
 }
 
-// Element 是 GOBOOT_ELEMENT 注册表中的一项，平台差异在这里表达，不在代码里。
+// Element 是 GRIT_ELEMENT 注册表中的一项，平台差异在这里表达，不在代码里。
 type Element struct {
 	Key  string `toml:"key"`
 	Unix string `toml:"unix"`
@@ -55,7 +55,7 @@ type Config struct {
 	Elements []Element
 	Plugins  map[string]*Plugin
 	Converts []Convert
-	Oxygen   map[string]string // goboot<key> -> defaults 内的模板相对路径
+	Oxygen   map[string]string // grit<key> -> defaults 内的模板相对路径
 	Order    []string          // 插件名，按字典序，保证生成结果稳定
 }
 

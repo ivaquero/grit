@@ -14,7 +14,7 @@ if = "conda info"
 
 # 必须回写父 shell 状态，走 eval 通道。
 # 注意：state 的 key 是完整命令名，因为前缀不规则（ceat 而非 cat）。
-# {shell} 由 goboot 替换成 bash / zsh / powershell，conda 自己输出对应语法。
+# {shell} 由 grit 替换成 bash / zsh / powershell，conda 自己输出对应语法。
 [state]
 ceat = "conda shell.{shell} activate {0}"
 ceq = "conda shell.{shell} deactivate"

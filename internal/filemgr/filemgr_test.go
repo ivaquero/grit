@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/ivaquero/goboot/internal/ospath"
+	"github.com/ivaquero/grit/internal/ospath"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -43,7 +43,7 @@ func newFileSet(t *testing.T) Set {
 	s := Set{
 		Element:  map[string]string{"cfg": filepath.Join(root, "home", "cfg")},
 		Oxide:    map[string]string{"bkcfg": "shell/cfg"},
-		Oxygen:   map[string]string{"gbcfg": "defaults/cfg"},
+		Oxygen:   map[string]string{"grcfg": "defaults/cfg"},
 		Backup:   filepath.Join(root, "backup"),
 		Defaults: fakeDefaults(),
 	}
@@ -177,7 +177,7 @@ func TestGuardRejectsHome(t *testing.T) {
 	s := Set{
 		Element:  map[string]string{"cfg": home},
 		Oxide:    map[string]string{"bkcfg": "x"},
-		Oxygen:   map[string]string{"gbcfg": "defaults/cfg"},
+		Oxygen:   map[string]string{"grcfg": "defaults/cfg"},
 		Backup:   t.TempDir(),
 		Defaults: fakeDefaults(),
 	}

@@ -26,7 +26,7 @@ func TestExpandTilde(t *testing.T) {
 	}
 }
 
-// 相对路径基于用户主目录展开，与 goboot 原有语义一致。
+// 相对路径基于用户主目录展开，与 grit 原有语义一致。
 func TestExpandRelative(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

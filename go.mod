@@ -1,4 +1,4 @@
-module github.com/ivaquero/goboot
+module github.com/ivaquero/grit
 
 go 1.27.1
 

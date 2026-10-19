@@ -1,4 +1,4 @@
-# 用于验证 state 通道的示例：goboot shell export 会按目标 shell 输出对应语法。
+# 用于验证 state 通道的示例：grit shell export 会按目标 shell 输出对应语法。
 name = "demo"
 abbr = "d"
 

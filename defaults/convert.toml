@@ -1,4 +1,4 @@
-# 格式转换：goboot conv <name> <file>
+# 格式转换：grit conv <name> <file>
 # 输出与输入同目录，扩展名替换为 ext。
 # 同名多条规则时，in_ext 精确匹配优先，不带 in_ext 的作默认。
 
@@ -83,7 +83,7 @@ ext = "mp4"
 tool = "ffmpeg"
 args = ["-hide_banner", "-fflags", "+genpts", "-i", "{in}", "-r", "24", "{out}"]
 
-# marimo 把结果写到 stdout，由 goboot 负责落盘。
+# marimo 把结果写到 stdout，由 grit 负责落盘。
 [[convert]]
 name = "ipynb2py"
 in_ext = "ipynb"

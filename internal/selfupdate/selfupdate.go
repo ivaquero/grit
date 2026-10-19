@@ -1,4 +1,4 @@
-// Package selfupdate 接管原来的 upox：拉取 Goboot 与插件仓库的最新状态。
+// Package selfupdate 接管原来的 upox：拉取 Grit 与插件仓库的最新状态。
 // 用 cmd.Dir 而不是改变进程工作目录，避免在 Windows 上锁住仓库目录。
 package selfupdate
 
@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/ivaquero/goboot/internal/ospath"
+	"github.com/ivaquero/grit/internal/ospath"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 
 // Options 控制更新行为。
 type Options struct {
-	Root      string // Goboot 根目录
+	Root      string // Grit 根目录
 	Shell     string // pwsh 或其它（决定插件仓库）
 	Force     bool   // 删除插件目录后重新克隆
 	NoPlugins bool   // 只更新本体
@@ -32,7 +32,7 @@ func Run(opt Options) error {
 		opt.Out = io.Discard
 	}
 	if opt.Root == "" {
-		return fmt.Errorf("Goboot root is unknown")
+		return fmt.Errorf("Grit root is unknown")
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("git is required but was not found in PATH")
@@ -41,9 +41,9 @@ func Run(opt Options) error {
 		return fmt.Errorf("%s is not a git repository", opt.Root)
 	}
 
-	fmt.Fprintln(opt.Out, "Updating Goboot...")
+	fmt.Fprintln(opt.Out, "Updating Grit...")
 	if err := syncRepo(opt.Root, "master", opt.Out); err != nil {
-		return fmt.Errorf("update Goboot: %w", err)
+		return fmt.Errorf("update Grit: %w", err)
 	}
 
 	if opt.NoPlugins {
@@ -70,14 +70,14 @@ func Run(opt Options) error {
 	}
 
 	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
-		fmt.Fprintln(opt.Out, "Cloning Goboot plugins...")
+		fmt.Fprintln(opt.Out, "Cloning Grit plugins...")
 		if err := git("", "clone", "--depth=1", repo, pluginDir); err != nil {
 			return fmt.Errorf("clone plugins: %w", err)
 		}
 		return nil
 	}
 
-	fmt.Fprintln(opt.Out, "Updating Goboot plugins...")
+	fmt.Fprintln(opt.Out, "Updating Grit plugins...")
 	return syncRepo(pluginDir, "main", opt.Out)
 }
 

@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# 发布由 tag 驱动：推 v* 标签 → 六目标交叉编译 → 归档 + 校验和 + changelog。
+# 日常 push / PR 不发布，只跑 snapshot 构建（见 .github/workflows/ci.yml）。
+version: 2
+
+project_name: grit
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: grit
+    main: .
+    binary: grit
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # 版本号注入 main.version；defaults/ 经 //go:embed 已在二进制内，无需额外资源。
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: grit
+    ids:
+      - grit
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - install.sh
+      - install.ps1
+
+checksum:
+  name_template: sha256sums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?:'
+      - '^test(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+      - '^ci(\(.+\))?:'
+      - '^style(\(.+\))?:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto
+  header: |
+    Cross-compiled binaries for six targets. Verify against `sha256sums.txt`.
+
+    macOS / Linux:
+
+    ```sh
+    tar -xzf grit_{{ .Version }}_<os>_<arch>.tar.gz
+    install -m 755 grit ~/.local/bin/grit
+    ```
+
+    Windows (Scoop):
+
+    ```powershell
+    scoop install ./grit.json
+    ```

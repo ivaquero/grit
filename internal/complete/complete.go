@@ -1,7 +1,7 @@
 // Package complete 生成 shell 补全。
 //
 // 设计要点：补全脚本是静态的，候选值是动态的。
-// 脚本只生成一次，每次按 TAB 都调用 `goboot complete <context>`，
+// 脚本只生成一次，每次按 TAB 都调用 `grit complete <context>`，
 // 所以新增转换、element、插件之后不需要重新生成脚本。
 package complete
 
@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/ivaquero/goboot/internal/config"
-	"github.com/ivaquero/goboot/internal/custom"
+	"github.com/ivaquero/grit/internal/config"
+	"github.com/ivaquero/grit/internal/custom"
 )
 
 var subcommands = []string{
@@ -23,7 +23,7 @@ var fileActions = []string{"backup", "restore", "catalyze", "propagate"}
 
 var listTargets = []string{"aliases", "plugins", "elements", "conv", "keys"}
 
-// Contexts 是 `goboot complete` 接受的全部上下文。
+// Contexts 是 `grit complete` 接受的全部上下文。
 func Contexts() []string {
 	return []string{"subcommands", "actions", "keys", "plugins", "converts", "ports", "shells", "list-targets"}
 }

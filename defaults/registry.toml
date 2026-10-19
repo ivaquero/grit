@@ -1,4 +1,4 @@
-# GOBOOT_ELEMENT 注册表：平台差异在这里表达，不在代码里。
+# GRIT_ELEMENT 注册表：平台差异在这里表达，不在代码里。
 # unix / win 缺省表示该平台不注册这一项。
 
 [[element]]

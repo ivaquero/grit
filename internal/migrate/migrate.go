@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ivaquero/goboot/internal/custom"
+	"github.com/ivaquero/grit/internal/custom"
 )
 
 // Legacy 是 custom.json 的旧结构。description 字段仅作说明，不迁移。
@@ -72,7 +72,7 @@ func Render(c *custom.Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	const header = "# 由 `goboot migrate` 从 custom.json 生成。\n" +
+	const header = "# 由 `grit migrate` 从 custom.json 生成。\n" +
 		"# 这是唯一被读取的配置格式，custom.json 不再使用。\n" +
 		"# 相对路径基于用户主目录。\n\n"
 	return append([]byte(header), body...), nil

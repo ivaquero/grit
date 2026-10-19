@@ -9,7 +9,7 @@ import (
 
 // Shell 是一套目标 shell 的代码生成器。
 type Shell interface {
-	// Name 是 goboot 内部标识，也是写进 GOBOOT_SHELL 的值。
+	// Name 是 grit 内部标识，也是写进 GRIT_SHELL 的值。
 	Name() string
 	// Interpreter 是给外部工具用的 shell 名（conda shell.<x>）。
 	Interpreter() string

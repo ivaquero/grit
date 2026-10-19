@@ -1,5 +1,6 @@
-goboot.exe
-goboot
+grit.exe
+grit
+dist/
 out.sh
 out.ps1
 custom.toml

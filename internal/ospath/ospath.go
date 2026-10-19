@@ -19,7 +19,7 @@ func Norm(p string, isWin bool) string {
 }
 
 // Expand 展开 ~ 与相对路径，然后归一风格。
-// 相对路径相对于用户主目录，与 goboot 原有语义一致。
+// 相对路径相对于用户主目录，与 grit 原有语义一致。
 func Expand(p string, isWin bool) string {
 	if p == "" {
 		return ""

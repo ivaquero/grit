@@ -1,5 +1,5 @@
-# catalyze / propagate 的源：Goboot 自带的配置模板。
-# key = gb + <ELEMENT key>，路径相对 GOBOOT 根目录。
+# catalyze / propagate 的源：Grit 自带的配置模板。
+# key = gr + <ELEMENT key>，路径相对 GRIT 根目录。
 
 [files]
-gbg = "defaults/files/gitconfig"
+grg = "defaults/files/gitconfig"

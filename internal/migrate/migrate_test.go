@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ivaquero/goboot/internal/custom"
+	"github.com/ivaquero/grit/internal/custom"
 )
 
 const legacyJSON = `{

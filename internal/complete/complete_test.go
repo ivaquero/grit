@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ivaquero/goboot/internal/config"
-	"github.com/ivaquero/goboot/internal/custom"
+	"github.com/ivaquero/grit/internal/config"
+	"github.com/ivaquero/grit/internal/custom"
 )
 
 func TestCandidatesSubcommands(t *testing.T) {

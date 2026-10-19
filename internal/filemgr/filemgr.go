@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ivaquero/goboot/internal/ospath"
+	"github.com/ivaquero/grit/internal/ospath"
 )
 
 // Action 是四个文件动作之一。
@@ -35,7 +35,7 @@ func Valid(a Action) bool {
 	return false
 }
 
-// Set 是四张表，路径均已展开。键带各自的前缀（bk / goboot）。
+// Set 是四张表，路径均已展开。键带各自的前缀（bk / grit）。
 type Set struct {
 	Element map[string]string // 真实配置路径
 	Oxide   map[string]string // 备份相对路径
@@ -181,7 +181,7 @@ func copyReader(r io.Reader, dst string, mode fs.FileMode) error {
 // fromDefaults 为真时表示源在 Set.Defaults 里，而不是本地磁盘。
 func (s Set) resolve(action Action, key string) (string, string, bool, error) {
 	bkKey := "bk" + key
-	gbKey := "gb" + key
+	grKey := "gr" + key
 
 	need := func(m map[string]string, k, table string) (string, error) {
 		v, ok := m[k]
@@ -215,7 +215,7 @@ func (s Set) resolve(action Action, key string) (string, string, bool, error) {
 		return ospath.Join(s.Backup, rel, s.IsWin), dst, false, nil
 
 	case Catalyze:
-		src, err := need(s.Oxygen, gbKey, "oxygen")
+		src, err := need(s.Oxygen, grKey, "oxygen")
 		if err != nil {
 			return "", "", false, err
 		}
@@ -226,7 +226,7 @@ func (s Set) resolve(action Action, key string) (string, string, bool, error) {
 		return src, dst, true, nil
 
 	case Propagate:
-		src, err := need(s.Oxygen, gbKey, "oxygen")
+		src, err := need(s.Oxygen, grKey, "oxygen")
 		if err != nil {
 			return "", "", false, err
 		}

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ivaquero/goboot/internal/config"
+	"github.com/ivaquero/grit/internal/config"
 )
 
 // pdfEngines 按优先级探测。

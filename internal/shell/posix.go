@@ -24,7 +24,7 @@ func (s *posix) Alias(name, cmd string) string {
 }
 
 func (s *posix) State(cmdName, plugin, action string) string {
-	return fmt.Sprintf(`%s() { eval "$(goboot state %s %s "$@")"; }`, cmdName, plugin, action)
+	return fmt.Sprintf(`%s() { eval "$(grit state %s %s "$@")"; }`, cmdName, plugin, action)
 }
 
 func (s *posix) Export(key, value string) string {
@@ -65,7 +65,7 @@ func (s *pwsh) Alias(name, cmd string) string {
 
 func (s *pwsh) State(cmdName, plugin, action string) string {
 	return fmt.Sprintf(
-		"function %s { goboot state %s %s @args | Out-String | Invoke-Expression }",
+		"function %s { grit state %s %s @args | Out-String | Invoke-Expression }",
 		cmdName, plugin, action)
 }
 

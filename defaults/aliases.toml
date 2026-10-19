@@ -45,21 +45,21 @@ cmd = "ouch decompress"
 name = "zpfls"
 cmd = "ouch list"
 
-# L2 文件动作的短名，等价于 goboot file <action>。
+# L2 文件动作的短名，等价于 grit file <action>。
 # 生成的仍是原生 alias / function，参数由 shell 自动追加。
 
 [[alias]]
 name = "epf"
-cmd = "goboot file backup"
+cmd = "grit file backup"
 
 [[alias]]
 name = "ipf"
-cmd = "goboot file restore"
+cmd = "grit file restore"
 
 [[alias]]
 name = "iif"
-cmd = "goboot file catalyze"
+cmd = "grit file catalyze"
 
 [[alias]]
 name = "ppgf"
-cmd = "goboot file propagate"
+cmd = "grit file propagate"
