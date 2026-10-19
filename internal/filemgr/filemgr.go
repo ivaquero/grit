@@ -157,8 +157,9 @@ func (s Set) fromDefaults(res Result, src, dst string, opt Options) Result {
 	if opt.DryRun {
 		return res
 	}
-	// embed.FS 报的权限是只读，补上写位，否则用户拿到的是不可编辑的文件。
-	res.Err = copyReader(f, dst, info.Mode().Perm()|0o200)
+	// 默认模板的来源常报零权限（fstest.MapFS）或只读权限（embed.FS），
+	// 直接照搬会写出用户既改不了、也读不了的文件，统一补齐读写位。
+	res.Err = copyReader(f, dst, info.Mode().Perm()|0o644)
 	return res
 }
 
@@ -289,7 +290,8 @@ func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	// 补上属主读写位：恢复出来的配置若沿袭备份的只读权限，用户就改不动了。
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm()|0o600)
 	if err != nil {
 		return err
 	}
