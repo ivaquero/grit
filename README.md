@@ -79,7 +79,7 @@ flowchart LR
 ├── internal/juliamgr/           Julia 环境激活与包操作
 ├── internal/migrate/            custom.json → custom.toml
 ├── internal/ospath/             路径展开、拼接、风格归一
-├── internal/selfupdate/         接管 upox
+├── internal/selfupdate/         从 Release 更新本体（不依赖 git）
 ├── internal/shell/              bash/zsh 与 pwsh 的语法渲染
 ├── internal/vscode/             VS Code 缓存定位与清理
 ├── .goreleaser.yaml            发布配置：六目标 / 归档 / checksum / changelog
@@ -94,7 +94,7 @@ flowchart LR
     └── plugins/*.toml           包管理器与工具的能力矩阵
 ```
 
-测试与被测包同目录（Go 惯例），`xxx_test.go` 可以直接验证未导出实现。跨包复用的路径逻辑集中在 `ospath`：`Join`（按目标 shell 风格拼接）与 `Within`（路径包含判断），`filemgr` 与 `selfupdate` 共用，不再各自实现一份。
+测试与被测包同目录（Go 惯例），`xxx_test.go` 可以直接验证未导出实现。跨包复用的路径逻辑集中在 `ospath`：`Join`（按目标 shell 风格拼接）与 `Within`（路径包含判断），`filemgr` 与 `vscode` 共用，不再各自实现一份。
 
 `defaults/` 通过 `//go:embed` 编进二进制，`grit` 因此可独立分发。
 
@@ -306,8 +306,9 @@ grit doctor                       # 体检：依赖、配置、引用
 grit doctor --strict              # 缺命令时返回非零，便于 CI
 grit migrate -n                   # 预演 custom.json -> custom.toml
 grit migrate                      # 实际转换
-grit self-update                  # 更新本体与插件仓库
-grit self-update -f --no-plugins  # 重克隆插件 / 只更新本体
+grit self-update                  # 从 Release 更新本体
+grit self-update -n               # 预演：只报告版本与目标路径
+grit self-update --version 0.2.0  # 装指定 tag；-f 同版本也重装
 grit conv tohtml notes.md         # 格式转换
 grit conv pdref                   # 固定输出名：./custom-reference.docx
 grit completion --shell bash      # 生成补全脚本
@@ -350,7 +351,7 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 | doctor | 14 个适用插件中 brew / tlmgr 缺失被报出；`--strict` 返回 1；`bkzs` 在 Windows 上无路径被标记 warn |
 | migrate | 真实 custom.json 无损转换：43 个 oxides、代理端口、两组环境别名全部保留 |
 | migrate 往返 | 写出的 TOML 读回与转换结果一致 |
-| self-update | 真实 git 仓库验证：本地改动被重置，未跟踪文件保留 |
+| self-update | httptest 模拟 release：tar.gz / zip 两条归档、校验和、版本比较、dry-run 全部通过；真实 API 在无 release 时给出 `no stable release` |
 | 格式转换 | md→html、md→ipynb、ipynb→md、wav→mp3 实测通过 |
 | in_ext 选择 | `tomd` 对 `.ipynb` 正确切到 jupytext |
 | 固定输出名 | `grit conv pdref` 无输入生成 11 KB 的 `custom-reference.docx` |
@@ -361,7 +362,7 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 | 版本注入 | 归档内 `grit.exe version` 输出 `grit 0.0.1-next`，与 snapshot 版本一致 |
 | 独立分发 | 二进制脱离仓库可 `propagate`：模板来自内嵌 FS，内容与仓库模板一致 |
 | 安装脚本 | `install.sh` / `install.ps1` 语法检查通过 |
-| 单元测试 | 71 项，`go test ./...` 通过 |
+| 单元测试 | 82 项，`go test ./...` 通过 |
 
 ## 安装
 
@@ -382,6 +383,24 @@ eval "$(grit init --shell ${SHELL##*/})"
 ```
 
 用户配置放在系统配置目录（`~/.config/grit/custom.toml`）。若设置了 `GRIT`，则回到仓库模式，配置从仓库根读取。
+
+## 自更新
+
+`grit self-update` 不依赖 git，也不要求安装目录是仓库：从 GitHub Release 取最新正式版，
+下载对应平台的归档，用 `sha256sums.txt` 校验后替换当前二进制。
+
+```sh
+grit self-update              # 有新版才下载
+grit self-update -n           # 预演：只报告版本、归档名与目标路径
+grit self-update --version 0.2.0
+grit self-update -f           # 同版本也重装
+```
+
+- 仓库默认 `ivaquero/grit`，fork 用 `GRIT_REPO=owner/name`；私有仓库或触发限流时读 `GITHUB_TOKEN`。
+- 版本比较只看前三段数字；`-dev` / `-next` / `-rc` 低于同号正式版，所以 `0.1.0-dev` 会被 `v0.1.0` 覆盖。
+- 替换走同目录临时文件 + rename（保证不跨文件系统）。Windows 不允许覆盖运行中的 exe，
+  实现是先把旧文件改名为 `.old` 再落位，`.old` 留给下一次更新清理。
+- 插件声明已 `//go:embed` 进二进制，磁盘上没有需要同步的插件目录，所以没有 `--no-plugins`。
 
 ## 构建与发布
 
@@ -420,4 +439,3 @@ git push origin v0.1.0
 
 - 发布流水线尚未跑过真实 tag：`goreleaser` 建 Release 与 Scoop manifest 补发这两步待首次 `v*` 验证
 - zsh 补全只做了人工语法审读（本机没有 zsh 可做逐键验证）；pwsh 补全已过 `Parser::ParseFile` 语法检查，仍未在真实交互式会话里逐键验证
-- `self-update` 仍按仓库模式实现：要求配置目录本身是 git 仓库。独立分发模式（`~/.config/grit`）下更新本体需要改用 Release 下载，这一步未做

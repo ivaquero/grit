@@ -93,7 +93,8 @@ func usage() {
                                     locate or clean VS Code caches
   grit doctor [--strict]              check required commands and references
   grit migrate [--from <json>] [--to <toml>] [-n] [-f]
-  grit self-update [-f] [--no-plugins]
+  grit self-update [-f] [--version <tag>] [-n]
+                                    download and install a release binary
   grit conv <name> [file]             convert a file in place, or emit a fixed-name output
   grit completion --shell <sh>        print a shell completion script
   grit complete <context>             print candidates (used by the script)
@@ -587,29 +588,32 @@ func cmdMigrate(args []string) error {
 	return nil
 }
 
-// cmdSelfUpdate 接管 upox：更新本体与插件仓库。
+// cmdSelfUpdate 从 GitHub Release 更新本体。
+// 不依赖 git：独立分发模式与仓库模式走同一条路径。
 func cmdSelfUpdate(args []string) error {
-	force, noPlugins := false, false
-	for _, a := range args {
-		switch a {
+	force, dry, want := false, false, ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "-f", "--force":
 			force = true
-		case "--no-plugins":
-			noPlugins = true
+		case "-n", "--dry-run":
+			dry = true
+		case "--version":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--version needs a tag")
+			}
+			want = args[i+1]
+			i++
 		default:
-			return fmt.Errorf("unknown flag %q", a)
+			return fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
-	sh, err := targetShell("", nil)
-	if err != nil {
-		return err
-	}
 	return selfupdate.Run(selfupdate.Options{
-		Root:      gritRoot(false),
-		Shell:     sh.Name(),
-		Force:     force,
-		NoPlugins: noPlugins,
-		Out:       os.Stdout,
+		Current: version,
+		Version: want,
+		Force:   force,
+		DryRun:  dry,
+		Out:     os.Stdout,
 	})
 }
 
