@@ -19,6 +19,9 @@ type Shell interface {
 	State(cmdName, plugin, action string) string
 	// Export 生成一条环境变量赋值。
 	Export(key, value string) string
+	// Unset 生成一条环境变量删除。
+	// 与 Export(key, "") 不同：空值会被下游当成「已设置但为空」。
+	Unset(key string) string
 	// Assoc 生成一个关联数组。
 	Assoc(name string, pairs [][2]string) string
 	// Source 生成 source 一行。

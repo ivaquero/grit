@@ -18,25 +18,34 @@ import (
 // pdfEngines 按优先级探测。
 var pdfEngines = []string{"tectonic", "xelatex", "lualatex", "pdflatex"}
 
-// Run 执行一条转换。输出与输入同目录，扩展名替换为规则的 ext。
+// Run 执行一条转换。输出与输入同目录，扩展名替换为规则的 ext；
+// 规则带 out 时改用固定文件名。
+// file 可以为空，前提是该规则从模板生成结果、不需要输入（NeedsInput 为假）。
 func Run(cv *config.Convert, file string, log io.Writer) error {
 	if cv.Ext == "" || cv.Tool == "" {
 		return fmt.Errorf("conversion %q is misconfigured: ext and tool are required", cv.Name)
 	}
 
-	abs, err := filepath.Abs(file)
-	if err != nil {
-		return err
+	abs := ""
+	if file != "" {
+		a, err := filepath.Abs(file)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(a)
+		if err != nil {
+			return fmt.Errorf("cannot read %s: %w", file, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("%s is a directory", file)
+		}
+		abs = a
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", file, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%s is a directory", file)
+	if abs == "" && cv.NeedsInput() {
+		return fmt.Errorf("conversion %q needs an input file", cv.Name)
 	}
 
-	dst, err := OutputPath(abs, cv.Ext)
+	dst, err := OutputPathFor(abs, cv)
 	if err != nil {
 		return err
 	}
@@ -56,7 +65,11 @@ func Run(cv *config.Convert, file string, log io.Writer) error {
 	args := expand(cv.Args, abs, dst, engine)
 
 	if log != nil {
-		fmt.Fprintf(log, "%s -> %s\n", filepath.Base(abs), filepath.Base(dst))
+		src := "(built-in template)"
+		if abs != "" {
+			src = filepath.Base(abs)
+		}
+		fmt.Fprintf(log, "%s -> %s\n", src, filepath.Base(dst))
 	}
 
 	cmd := exec.Command(toolPath, args...)
@@ -74,6 +87,36 @@ func Run(cv *config.Convert, file string, log io.Writer) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	return cmd.Run()
+}
+
+// OutputPathFor 按规则的 out / ext 算输出路径。
+// in 为空表示规则不需要输入，此时输出落在当前工作目录。
+func OutputPathFor(in string, cv *config.Convert) (string, error) {
+	if cv.Out == "" {
+		if in == "" {
+			return "", fmt.Errorf("conversion %q needs an input file", cv.Name)
+		}
+		return OutputPath(in, cv.Ext)
+	}
+	// 固定输出名只能是文件名：允许子路径会让 guard 与报告都变得含糊。
+	if filepath.Base(cv.Out) != cv.Out {
+		return "", fmt.Errorf("conversion %q: out must be a bare filename, got %q", cv.Name, cv.Out)
+	}
+	base := ""
+	if in != "" {
+		base = filepath.Dir(in)
+	} else {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		base = wd
+	}
+	dst := filepath.Join(base, cv.Out)
+	if in != "" && strings.EqualFold(dst, in) {
+		return "", fmt.Errorf("refusing to overwrite the input file %s", filepath.Base(in))
+	}
+	return dst, nil
 }
 
 // OutputPath 返回同目录、扩展名被替换的路径。

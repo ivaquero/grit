@@ -45,6 +45,11 @@ cmd = "ouch decompress"
 name = "zpfls"
 cmd = "ouch list"
 
+# Julia 解释器本体。包操作与环境激活见 plugins/lang_julia.toml。
+[[alias]]
+name = "jl"
+cmd = "julia --quiet"
+
 # L2 文件动作的短名，等价于 grit file <action>。
 # 生成的仍是原生 alias / function，参数由 shell 自动追加。
 

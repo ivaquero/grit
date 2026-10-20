@@ -98,3 +98,13 @@ ext = "html"
 tool = "marimo"
 stdout = true
 args = ["export", "html", "{in}"]
+
+# 固定输出名：参数里没有 {in}，因此可以不带输入文件调用（grit conv pdref）。
+# 输出落在当前目录；带 <file> 时落在该文件所在目录。
+[[convert]]
+name = "pdref"
+ext = "docx"
+out = "custom-reference.docx"
+tool = "pandoc"
+stdout = true
+args = ["--print-default-data-file", "reference.docx"]

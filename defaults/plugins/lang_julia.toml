@@ -1,0 +1,30 @@
+# Julia：包操作走 jl 前缀（L2），环境激活走 jleat / jeq（L3）。
+# 环境短名来自 custom.toml 的 [env.julia] / [env.julia_win]，
+# 也可以直接给路径（相对路径基于主目录）或 @name。
+name = "julia"
+abbr = "jl"
+requires = "julia"
+
+[actions]
+h = "julia --help"
+v = "julia --version"
+r = "julia --eval {0}"
+is = "grit julia add {0}"
+us = "grit julia rm {0}"
+up = "grit julia update {0}"
+pn = "grit julia pin {0}"
+pnr = "grit julia free {0}"
+b = "grit julia build {0}"
+ts = "grit julia test {0}"
+st = "grit julia status"
+cl = "grit julia gc"
+lv = "grit julia leaves"
+mt = "grit julia maturity"
+envs = "grit julia envs"
+cur = "grit julia current"
+
+# 改变当前 shell 的环境，必须由父 shell eval。
+# key 是完整命令名：jl 拼不出 jleat。
+[state]
+jleat = "{self} julia activate {0}"
+jeq = "{self} julia deactivate"

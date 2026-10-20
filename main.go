@@ -17,11 +17,14 @@ import (
 	"github.com/ivaquero/grit/internal/config"
 	"github.com/ivaquero/grit/internal/convert"
 	"github.com/ivaquero/grit/internal/custom"
+	"github.com/ivaquero/grit/internal/doctor"
 	"github.com/ivaquero/grit/internal/filemgr"
+	"github.com/ivaquero/grit/internal/juliamgr"
 	"github.com/ivaquero/grit/internal/migrate"
 	"github.com/ivaquero/grit/internal/ospath"
 	"github.com/ivaquero/grit/internal/selfupdate"
 	"github.com/ivaquero/grit/internal/shell"
+	"github.com/ivaquero/grit/internal/vscode"
 )
 
 //go:embed defaults/*.toml defaults/plugins/*.toml defaults/files/*
@@ -54,6 +57,12 @@ func main() {
 		err = cmdSelfUpdate(os.Args[2:])
 	case "conv":
 		err = cmdConv(os.Args[2:])
+	case "julia":
+		err = cmdJulia(os.Args[2:])
+	case "vscode":
+		err = cmdVSCode(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "complete":
 		err = cmdComplete(os.Args[2:])
 	case "completion":
@@ -73,17 +82,22 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `grit — declarative shell and dotfile assembler
 
-  grit init --shell <bash|zsh|pwsh> [--only-installed]
+  grit init --shell <bash|zsh|pwsh> [--only-installed] [--check]
                                     generate shell integration
   grit state <plugin> <action> [args] print shell code to eval (state channel)
   grit shell export <key> <value>     print one export in the target shell syntax
   grit file <backup|restore|catalyze|propagate> [-n] <key>...
+  grit julia <op> [pkg...] [--env <name>]
+                                    manage Julia environments and packages
+  grit vscode <dir|clean> [-a] [-n] [--data-dir <path>]
+                                    locate or clean VS Code caches
+  grit doctor [--strict]              check required commands and references
   grit migrate [--from <json>] [--to <toml>] [-n] [-f]
   grit self-update [-f] [--no-plugins]
-  grit conv <name> <file>             convert a file in place
+  grit conv <name> [file]             convert a file in place, or emit a fixed-name output
   grit completion --shell <sh>        print a shell completion script
   grit complete <context>             print candidates (used by the script)
-  grit list <aliases|plugins|elements|conv>
+  grit list <aliases|plugins|elements|keys|conv>
 `)
 }
 
@@ -120,10 +134,13 @@ func cmdInit(args []string) error {
 	}
 
 	// 默认全量生成：命令暂时不在 PATH 不等于用户不需要那个别名。
-	onlyInstalled := false
+	onlyInstalled, check := false, false
 	for _, a := range args {
-		if a == "--only-installed" {
+		switch a {
+		case "--only-installed":
 			onlyInstalled = true
+		case "--check":
+			check = true
 		}
 	}
 	// 每个插件只判定一次，避免 actions 与 state 各打印一遍跳过原因。
@@ -211,8 +228,19 @@ func cmdInit(args []string) error {
 		}
 	}
 
-	_, err = os.Stdout.WriteString(b.String())
-	return err
+	if _, err = os.Stdout.WriteString(b.String()); err != nil {
+		return err
+	}
+
+	// 总结行只走 stderr：stdout 会被调用方 eval，混进诊断信息就是语法错误。
+	if check {
+		cu, e := custom.Load(filepath.Join(root, "custom.toml"))
+		if e != nil {
+			return e
+		}
+		fmt.Fprintln(os.Stderr, "grit: "+doctor.Check(cfg, cu, root, defaultsFS).Summary())
+	}
+	return nil
 }
 
 func cmdState(args []string) error {
@@ -367,6 +395,15 @@ func cmdList(args []string) error {
 			}
 			fmt.Printf("%-4s %s\n", e.Key, ospath.Expand(p, isWin))
 		}
+	case "keys":
+		// 与补全共用一套平台过滤，避免两处规则漂移。
+		keys, err := complete.Candidates("keys", cfg, &custom.Config{})
+		if err != nil {
+			return err
+		}
+		for _, k := range keys {
+			fmt.Println(k)
+		}
 	case "conv":
 		for _, cv := range cfg.Converts {
 			from := cv.InExt
@@ -379,6 +416,9 @@ func cmdList(args []string) error {
 			}
 			if cv.Stdout {
 				extra += "  [stdout]"
+			}
+			if cv.Out != "" {
+				extra += "  [out: " + cv.Out + "]"
 			}
 			fmt.Printf("%-10s %-6s -> %-5s %s%s\n", cv.Name, from, cv.Ext, cv.Tool, extra)
 		}
@@ -574,23 +614,34 @@ func cmdSelfUpdate(args []string) error {
 }
 
 // cmdConv 执行一条声明式格式转换。
+// 固定输出名的规则（out 字段）可以不带输入文件，输出落在当前目录。
 func cmdConv(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: grit conv <name> <file>")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: grit conv <name> [file]")
 	}
-	name, file := args[0], args[1]
+	name := args[0]
+	file := ""
+	if len(args) > 1 {
+		file = args[1]
+	}
 
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	inExt := strings.TrimPrefix(filepath.Ext(file), ".")
+	inExt := ""
+	if file != "" {
+		inExt = strings.TrimPrefix(filepath.Ext(file), ".")
+	}
 	cv, ok := cfg.ConvertFor(name, inExt)
 	if !ok {
 		return fmt.Errorf("unknown conversion %q (see `grit list conv`)", name)
 	}
 	if !matchesOS(cv.OS) {
 		return fmt.Errorf("%s is not available on this platform", name)
+	}
+	if file == "" && cv.NeedsInput() {
+		return fmt.Errorf("usage: grit conv %s <file>", name)
 	}
 	return convert.Run(cv, file, os.Stdout)
 }
@@ -608,7 +659,7 @@ func cmdComplete(args []string) error {
 	if err != nil {
 		return err
 	}
-	vals, err := complete.Candidates(args[0], cfg, cu)
+	vals, err := complete.Candidates(args[0], cfg, cu, args[1:]...)
 	if err != nil {
 		return err
 	}
@@ -630,4 +681,306 @@ func cmdCompletion(args []string) error {
 	}
 	_, err = os.Stdout.WriteString(s)
 	return err
+}
+
+// cmdJulia 管理 Julia 环境（L3）与包操作（L2）。
+//
+// 环境动作把 JULIA_PROJECT 写回父 shell；包操作把参数渲染成 Pkg 表达式
+// 交给 julia 子进程。两者的分流点就在这里，不在 TOML 里 ——
+// 因为「参数变成 Julia 数组」这一步无法用静态模板表达。
+func cmdJulia(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: grit julia <%s> [pkg...] [--env <name>]",
+			strings.Join(juliamgr.Ops, "|"))
+	}
+
+	sh, err := targetShell("", nil)
+	if err != nil {
+		return err
+	}
+	isWin := sh.Name() == "pwsh"
+	root := gritRoot(isWin)
+	cu, err := custom.Load(filepath.Join(root, "custom.toml"))
+	if err != nil {
+		return err
+	}
+
+	// --env 可以出现在任意位置：grit julia add --env t A B
+	envName := ""
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--env", "-e":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--env needs an environment name")
+			}
+			envName = args[i+1]
+			i++
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	if len(rest) == 0 {
+		return fmt.Errorf("missing julia operation")
+	}
+
+	op, pkgs := rest[0], rest[1:]
+	if !juliamgr.Valid(op) {
+		return fmt.Errorf("unknown julia operation %q (want one of %s)",
+			op, strings.Join(juliamgr.Ops, ", "))
+	}
+
+	switch op {
+	case juliamgr.OpActivate:
+		name := envName
+		if len(pkgs) > 0 {
+			name = pkgs[0]
+		}
+		spec, err := juliamgr.Resolve(name, cu, isWin)
+		if err != nil {
+			return err
+		}
+		// 只有这一行会被父 shell eval，提示信息不能混进 stdout。
+		fmt.Println(sh.Export("JULIA_PROJECT", spec))
+		return nil
+	case juliamgr.OpDeactivate:
+		fmt.Println(sh.Unset("JULIA_PROJECT"))
+		return nil
+	case juliamgr.OpCurrent:
+		if v := os.Getenv("JULIA_PROJECT"); v != "" {
+			fmt.Println(v)
+			return nil
+		}
+		if spec, err := juliamgr.Resolve("", cu, isWin); err == nil {
+			fmt.Printf("(unset; julia falls back to %s)\n", spec)
+		} else {
+			fmt.Println("(unset)")
+		}
+		return nil
+	case juliamgr.OpEnvs:
+		names := juliamgr.ShortcutNames(cu, isWin)
+		if len(names) == 0 {
+			fmt.Printf("no [env.julia] shortcuts in %s\n", cu.Path)
+			return nil
+		}
+		for _, n := range names {
+			spec, err := juliamgr.Resolve(n, cu, isWin)
+			if err != nil {
+				fmt.Printf("%-6s %v\n", n, err)
+				continue
+			}
+			fmt.Printf("%-6s %s\n", n, spec)
+		}
+		return nil
+	}
+
+	if juliamgr.NeedsPackages(op) && len(pkgs) == 0 {
+		return fmt.Errorf("%s needs at least one package", op)
+	}
+	if juliamgr.TakesNoPackages(op) && len(pkgs) > 0 {
+		return fmt.Errorf("%s takes no package arguments", op)
+	}
+
+	// 优先级：--env > 当前 shell 已激活的 JULIA_PROJECT > 版本默认环境。
+	spec := envName
+	switch {
+	case spec != "":
+		if spec, err = juliamgr.Resolve(spec, cu, isWin); err != nil {
+			return err
+		}
+	case os.Getenv("JULIA_PROJECT") != "":
+		spec = os.Getenv("JULIA_PROJECT")
+	default:
+		if spec, err = juliamgr.Resolve("", cu, isWin); err != nil {
+			return err
+		}
+	}
+
+	switch op {
+	case juliamgr.OpLeaves:
+		names, err := juliamgr.Leaves(spec)
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			fmt.Println(n)
+		}
+		return nil
+	case juliamgr.OpMaturity:
+		m, err := juliamgr.CheckMaturity(spec)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("total: %d\nimmature: %d\nmaturity: %d %%\n", m.Total, m.Immature, m.Rate())
+		return nil
+	}
+
+	return juliamgr.RunPackage(op, pkgs, juliamgr.Options{
+		Spec:  spec,
+		Stdin: os.Stdin,
+		Out:   os.Stdout,
+		Err:   os.Stderr,
+	})
+}
+
+// cmdVSCode 定位或清理 VS Code 的缓存。
+// 默认只清无状态缓存；workspaceStorage 需要 -a 明确要求。
+func cmdVSCode(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: grit vscode <dir|clean> [-a] [-n] [--data-dir <path>]")
+	}
+	sub := args[0]
+
+	all, dry, dataDir := false, false, ""
+	rest := args[1:]
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "-a", "--all":
+			all = true
+		case "-n", "--dry-run":
+			dry = true
+		case "--data-dir":
+			if i+1 >= len(rest) {
+				return fmt.Errorf("--data-dir needs a path")
+			}
+			dataDir = rest[i+1]
+			i++
+		default:
+			return fmt.Errorf("unknown flag %q", rest[i])
+		}
+	}
+
+	dir, err := vscode.ResolveDataDir(dataDir)
+	if err != nil {
+		return err
+	}
+
+	switch sub {
+	case "dir":
+		fmt.Println(dir)
+		return nil
+	case "clean":
+	default:
+		return fmt.Errorf("unknown vscode subcommand %q (want dir or clean)", sub)
+	}
+
+	entries, err := vscode.Clean(vscode.Options{DataDir: dataDir, All: all, DryRun: dry})
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		fmt.Printf("nothing to clean in %s\n", dir)
+		return nil
+	}
+
+	var total int64
+	failed := 0
+	for _, e := range entries {
+		mark := "removed"
+		if dry {
+			mark = "[dry] would remove"
+		}
+		if e.Err != nil {
+			mark = "error"
+			failed++
+		}
+		fmt.Printf("%s %s (%s, %s)\n", mark, e.Path, e.Desc, humanBytes(e.Size))
+		if e.Err != nil {
+			fmt.Printf("  %v\n", e.Err)
+		}
+		total += e.Size
+	}
+
+	verb := "removed"
+	if dry {
+		verb = "would remove"
+	}
+	fmt.Printf("%s %d item(s), %s\n", verb, len(entries), humanBytes(total))
+	if failed > 0 {
+		return fmt.Errorf("%d of %d item(s) failed", failed, len(entries))
+	}
+	return nil
+}
+
+// cmdDoctor 输出启动期体检报告。
+// 默认即使缺命令也返回 0：缺命令是可预期状态（brew 在 Windows 上就是没有），
+// 需要门控时加 --strict。
+func cmdDoctor(args []string) error {
+	strict := false
+	for _, a := range args {
+		switch a {
+		case "--strict":
+			strict = true
+		default:
+			return fmt.Errorf("unknown flag %q", a)
+		}
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	sh, err := targetShell("", nil)
+	if err != nil {
+		return err
+	}
+	isWin := sh.Name() == "pwsh"
+	root := gritRoot(isWin)
+
+	cu, err := custom.Load(filepath.Join(root, "custom.toml"))
+	if err != nil {
+		return err
+	}
+
+	rep := doctor.Check(cfg, cu, root, defaultsFS)
+	printDoctor(rep, root)
+
+	plugins := 0
+	for _, e := range rep.Entries {
+		if e.Scope == "plugin" {
+			plugins++
+		}
+	}
+	if len(rep.Missing) == 0 {
+		fmt.Printf("\nall %d required command(s) available.\n", plugins)
+		return nil
+	}
+	fmt.Printf("\n%d of %d plugin(s) miss a required command; `grit init --only-installed` skips them.\n",
+		len(rep.Missing), plugins)
+	if strict {
+		return fmt.Errorf("%d required command(s) missing: %s",
+			len(rep.Missing), strings.Join(rep.Missing, ", "))
+	}
+	return nil
+}
+
+func printDoctor(rep doctor.Report, root string) {
+	fmt.Printf("grit doctor — %s\n", root)
+	width := 0
+	for _, e := range rep.Entries {
+		if len(e.Name) > width {
+			width = len(e.Name)
+		}
+	}
+	scope := ""
+	for _, e := range rep.Entries {
+		if e.Scope != scope {
+			scope = e.Scope
+			fmt.Printf("\n%s\n", scope)
+		}
+		fmt.Printf("  %-5s %-*s  %s\n", e.Level, width, e.Name, e.Detail)
+	}
+}
+
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }

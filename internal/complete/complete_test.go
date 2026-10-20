@@ -81,6 +81,81 @@ func TestCandidatesUnknownContext(t *testing.T) {
 	}
 }
 
+// state 的第二层补全需要插件名；插件不存在时静默返回空。
+func TestCandidatesStateActions(t *testing.T) {
+	cfg := &config.Config{
+		Plugins: map[string]*config.Plugin{
+			"julia": {Name: "julia", Abbr: "jl", State: map[string]string{"jeq": "x", "jleat": "y"}},
+		},
+	}
+	got, err := Candidates("state-actions", cfg, &custom.Config{}, "julia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "jeq" || got[1] != "jleat" {
+		t.Fatalf("got %v", got)
+	}
+
+	for _, extra := range [][]string{nil, {"ghost"}} {
+		got, err := Candidates("state-actions", cfg, &custom.Config{}, extra...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("extra=%v: got %v", extra, got)
+		}
+	}
+}
+
+func TestCandidatesJulia(t *testing.T) {
+	cu := &custom.Config{Env: custom.Env{Julia: map[string]string{"t": "/tmp/t", "b": "/tmp/b"}}}
+	got, err := Candidates("julia-envs", &config.Config{}, cu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "b" || got[1] != "t" {
+		t.Fatalf("got %v", got)
+	}
+
+	ops, err := Candidates("julia-ops", &config.Config{}, cu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"activate", "add", "leaves"} {
+		if !slices.Contains(ops, want) {
+			t.Fatalf("missing operation %q in %v", want, ops)
+		}
+	}
+
+	vsc, err := Candidates("vscode-actions", &config.Config{}, cu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vsc) != 2 || vsc[0] != "dir" || vsc[1] != "clean" {
+		t.Fatalf("got %v", vsc)
+	}
+}
+
+// 新增子命令必须出现在第一层补全里。
+func TestSubcommandsCoverNewCommands(t *testing.T) {
+	got, err := Candidates("subcommands", &config.Config{}, &custom.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"julia", "vscode", "doctor"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("missing subcommand %q", want)
+		}
+	}
+	// 脚本里出现的每个上下文都必须真实存在。
+	ctxs := Contexts()
+	for _, c := range []string{"state-actions", "julia-ops", "julia-envs", "vscode-actions"} {
+		if !slices.Contains(ctxs, c) {
+			t.Fatalf("context %q not registered", c)
+		}
+	}
+}
+
 // 三份脚本都必须非空且包含对应的注册方式。
 func TestScripts(t *testing.T) {
 	cases := map[string]string{

@@ -24,8 +24,8 @@ flowchart LR
     g --> s["shell 启动脚本<br/>eval 一次，此后不再变"]
 
     s --> l1["L1 原生 alias"]
-    s --> l2["L2 命令短名<br/>epf / ipf / iif / ppgf"]
-    s --> l3["L3 state 包装<br/>ceat / ceq / pxy"]
+    s --> l2["L2 命令短名<br/>epf / ipf / jlis / vscl"]
+    s --> l3["L3 state 包装<br/>ceat / jleat / pxy"]
 
     l1 --> u1["直接 exec 原生工具<br/>零额外进程"]
     l2 --> u2["短名展开为 grit 子命令<br/>file / conv"]
@@ -61,24 +61,27 @@ flowchart LR
 | 层 | 形式 | 例子 |
 |---|---|---|
 | L1 纯转发 | TOML `[[alias]]` → native alias | `ll` `bis` `cis` |
-| L2 计算型 | Go 子命令，子进程执行 | `epf` `ipf` `iif` `ppgf` |
-| L3 状态型 | `eval "$(grit state ...)"` | `ceat` `ceq` `pxy` |
+| L2 计算型 | Go 子命令，子进程执行 | `epf` `ipf` `jlis` `vscl` |
+| L3 状态型 | `eval "$(grit state ...)"` | `ceat` `ceq` `jleat` `pxy` |
 
 判定标准只有一条：**是否改变当前 shell 状态**。
 
 ## 目录
 
 ```text
-├── main.go                     CLI：init / state / file / shell / migrate / self-update / list
+├── main.go                     CLI：init / state / file / julia / vscode / doctor / conv / shell / migrate / self-update / list
 ├── internal/complete/           shell 补全脚本与候选
 ├── internal/config/             TOML 模型、加载、冲突校验
 ├── internal/convert/            格式转换执行器
 ├── internal/custom/             用户配置 custom.toml
+├── internal/doctor/             启动期体检：依赖、配置、引用
 ├── internal/filemgr/            L2 四个文件动作
+├── internal/juliamgr/           Julia 环境激活与包操作
 ├── internal/migrate/            custom.json → custom.toml
 ├── internal/ospath/             路径展开、拼接、风格归一
 ├── internal/selfupdate/         接管 upox
 ├── internal/shell/              bash/zsh 与 pwsh 的语法渲染
+├── internal/vscode/             VS Code 缓存定位与清理
 ├── .goreleaser.yaml            发布配置：六目标 / 归档 / checksum / changelog
 ├── .github/workflows/          ci.yml（测试 + snapshot 构建）、release.yml（tag 发布）
 ├── install.sh / install.ps1     二进制安装器
@@ -129,7 +132,7 @@ flowchart LR
 
 ## 插件矩阵
 
-15 个插件，命令名 = `abbr` + `actions` 的 key。
+16 个插件，命令名 = `abbr` + `actions` 的 key。
 
 | 插件 | abbr | 平台 | 覆盖 |
 |---|---|---|---|
@@ -140,12 +143,13 @@ flowchart LR
 | `tlmgr` | `tl` | — | TeXLive 11 项 |
 | `cargo` | `cg` | — | 16 项，含 build / run / test / publish |
 | `rustup` | `rs` | — | component add / remove / list / update |
+| `julia` | `jl` | — | 16 项，含 status / leaves / maturity + `jleat` / `jeq` 环境激活（L3） |
 | `winget` | `w` | windows | 12 项，含 source 管理 |
 | `wsl` | `wsl` | windows | install / uninstall / list / list-online |
 | `apt` | `a` | linux | 13 项，含 depends 与 source 管理 |
 | `mas` | `m` | darwin | 7 项 |
 | `ollama` | `ol` | — | 9 项 |
-| `vscode` | `vs` | — | 扩展 install / uninstall / list |
+| `vscode` | `vs` | — | 扩展 install / uninstall / list + `vscl` 缓存清理 |
 | `proxy` | `p` | — | `pxy` 设置/清除代理（L3） |
 | `demo` | `d` | — | state 通道的验证样例 |
 
@@ -155,7 +159,7 @@ flowchart LR
 
 ## 格式转换
 
-`grit conv <name> <file>`：输出与输入同目录，扩展名替换。规则全在 `convert.toml`，加一条转换不需要碰代码。
+`grit conv <name> [file]`：输出与输入同目录，扩展名替换。规则全在 `convert.toml`，加一条转换不需要碰代码。
 
 | 命令 | 输出 | 工具 |
 |---|---|---|
@@ -168,12 +172,15 @@ flowchart LR
 | `topng` / `tojpg` | `.png` / `.jpg` | magick |
 | `tomp3` / `tomp4` | `.mp3` / `.mp4` | ffmpeg |
 | `ipynb2py` / `py2html` | `.py` / `.html` | marimo |
+| `pdref` | 固定名 `custom-reference.docx` | pandoc |
 
-三个字段表达差异，不需要为此写分支代码：
+四个字段表达差异，不需要为此写分支代码：
 
 - `in_ext`：同名多条规则时按输入扩展名精确匹配（`tomd` 对 `.ipynb` 切到 jupytext）
 - `engine`：按 tectonic → xelatex → lualatex → pdflatex 顺序探测
-- `stdout`：工具把结果写到 stdout，由 grit 落盘（marimo 属于这种）
+- `stdout`：工具把结果写到 stdout，由 grit 落盘（marimo / pdref 属于这种）
+- `out`：固定输出文件名。参数里没有 `{in}` 时可以不传输入文件，输出落在当前目录；
+  传了 `<file>` 则落在该文件所在目录（`grit conv pdref` 就是 `pandoc --print-default-data-file reference.docx`）
 
 输出路径与原文件同名时直接拒绝 —— 否则 pandoc 这类工具会吃掉源文件。
 
@@ -194,6 +201,10 @@ grit completion --shell pwsh | Out-String | Invoke-Expression
 | `grit <TAB>` | 子命令 |
 | `grit file <TAB>` | backup / restore / catalyze / propagate |
 | `grit file backup <TAB>` | 当前平台的 element key |
+| `grit state <plugin> <TAB>` | 该插件的 state 动作（`jleat` / `jeq`） |
+| `grit julia <TAB>` | 操作名（activate / add / leaves …） |
+| `grit julia activate <TAB>` / `jleat <TAB>` | `[env.julia]` 的短名 |
+| `grit vscode <TAB>` | dir / clean |
 | `grit conv <TAB>` | 转换名（去重后） |
 | `epf` / `ipf` / `iif` / `ppgf <TAB>` | element key |
 | `pxy <TAB>` | `proxy_ports` 的别名 |
@@ -242,23 +253,66 @@ ceat = "conda shell.{shell} activate {0}"
 
 > `[state]` 的 key 是完整命令名而非后缀，因为前缀不规则 —— `conda` 的 `abbr` 是 `c`，但环境动作叫 `ceat` 不是 `cat`。骨架第一版把这两者拼在一起，装配器当场撞上 `cat` 别名。
 
+### Julia：环境是变量，包是子进程
+
+`lang_julia.toml` 是唯一同时用满两条通道的插件：
+
+```toml
+name = "julia"
+abbr = "jl"
+requires = "julia"
+
+[actions]
+is = "grit julia add {0}"            # jlis：参数渲染成 Pkg.add([...])，子进程
+lv = "grit julia leaves"             # jllv：纯 Go 读 Project.toml
+
+[state]
+jleat = "{self} julia activate {0}"  # 写 JULIA_PROJECT，父 shell eval
+jeq = "{self} julia deactivate"
+```
+
+环境名按四条规则解析，顺序固定：
+
+| 输入 | 含义 |
+|---|---|
+| 空 | 当前 Julia 版本的共享环境 `@vX.Y`（向 `julia` 询问 `VERSION`） |
+| `@name` / `@.` | 原样交给 Julia |
+| `[env.julia]` / `[env.julia_win]` 的键 | 展开成路径 |
+| 其余 | 当路径处理；相对路径基于主目录 |
+
+激活只写一个环境变量 —— Julia 自己认 `JULIA_PROJECT`，不需要每次 `--project=`。
+包操作的环境优先级是 `--env` → 已激活的 `JULIA_PROJECT` → 版本默认环境。
+`leaves` / `maturity` 是纯 Go 读 `Project.toml` 与 `Manifest.toml`，不启动 Julia。
+
 ## 命令
 
 ```sh
 grit init --shell bash            # 生成 shell 集成，供 eval / source
 grit init --shell bash --only-installed   # 只生成依赖已安装的插件
+grit init --shell bash --check    # 额外在 stderr 汇总缺失的 required 命令
 grit init --shell pwsh
 grit state conda ceat kaggle      # 打印 shell 代码，由调用方 eval
 grit state proxy pxy c            # 按别名设置代理；无参数则清除
+grit state julia jleat t          # 激活 Julia 环境（写 JULIA_PROJECT）
 grit file backup zs               # L2：备份
 grit file restore zs -n           # L2：恢复（dry-run）
+grit julia envs                   # 列出 [env.julia] 短名与展开后的路径
+grit julia add Example --env t    # 在指定环境装包
+grit julia leaves                 # 直接依赖，读 Project.toml
+grit julia maturity               # Manifest 里 0.x 版本的比例
+grit vscode dir                   # 打印 VS Code 数据目录
+grit vscode clean -n              # 预演缓存清理；-a 才动 workspaceStorage
+grit doctor                       # 体检：依赖、配置、引用
+grit doctor --strict              # 缺命令时返回非零，便于 CI
 grit migrate -n                   # 预演 custom.json -> custom.toml
 grit migrate                      # 实际转换
 grit self-update                  # 更新本体与插件仓库
 grit self-update -f --no-plugins  # 重克隆插件 / 只更新本体
 grit conv tohtml notes.md         # 格式转换
+grit conv pdref                   # 固定输出名：./custom-reference.docx
 grit completion --shell bash      # 生成补全脚本
 grit list plugins                 # 查看能力矩阵
+grit list keys                    # 当前平台的 element key
 grit list conv                    # 查看转换表
 ```
 
@@ -276,13 +330,15 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 
 | 项 | 结果 |
 |---|---|
-| 编译 | 4.1 MB 单文件，`CGO_ENABLED=0` |
+| 编译 | 3.5 MB 单文件（`-s -w -trimpath`），`CGO_ENABLED=0` |
 | bash / zsh 输出 | alias + 关联数组 + eval 包装语法正确 |
 | pwsh 输出 | `function` + `$Global:` hashtable 语法正确 |
 | 平台过滤 | Windows 宿主不生成 `ais` / `mis`，生成 `wis` / `wslis` |
-| 全量生成 | 131 条 alias（含 12 条转换短名），`ceat` / `pxy` 等 state 包装齐全 |
+| 全量生成 | 150 条 alias（Windows 宿主，含 13 条转换短名），`ceat` / `jleat` / `pxy` 等 state 包装齐全 |
 | 按需生成 | `--only-installed` 跳过项在 stderr 各报一次，不重复 |
 | `eval` 通道 | 变量回写成功；`ceat` / `pxy` 均走通 |
+| Julia 环境 | `jleat @v1.13` 后 `JULIA_PROJECT` 生效，`jeq` 清空；短名 / 绝对路径 / `@named` 三种输入均正确解析 |
+| Julia 数据 | 真实 v1.13 环境 `maturity` 给出 total=3 / immature=1 / 67%，`leaves` 读 Project.toml 一致 |
 | 代理三态 | 别名 `pxy c`、直给端口 `pxy 8080`、无参清除均正确 |
 | L2 四个动作 | backup / restore / catalyze / propagate 全部通过 |
 | L2 短名 | `epf g` 正确落到 `grit file backup g` |
@@ -290,19 +346,22 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 | 错误隔离 | 单个 key 失败后其余 key 继续 |
 | guard | 拒绝以主目录为目标 |
 | dry-run | 不产生任何文件 |
+| VSCode 清理 | 临时数据目录 5 个目标全部命中；无 `-a` 时 `workspaceStorage` 保留；`-n` 不删除任何东西 |
+| doctor | 14 个适用插件中 brew / tlmgr 缺失被报出；`--strict` 返回 1；`bkzs` 在 Windows 上无路径被标记 warn |
 | migrate | 真实 custom.json 无损转换：43 个 oxides、代理端口、两组环境别名全部保留 |
 | migrate 往返 | 写出的 TOML 读回与转换结果一致 |
 | self-update | 真实 git 仓库验证：本地改动被重置，未跟踪文件保留 |
 | 格式转换 | md→html、md→ipynb、ipynb→md、wav→mp3 实测通过 |
 | in_ext 选择 | `tomd` 对 `.ipynb` 正确切到 jupytext |
+| 固定输出名 | `grit conv pdref` 无输入生成 11 KB 的 `custom-reference.docx` |
 | 覆盖保护 | 输出与输入同名时拒绝执行 |
-| 补全 | bash 五个补全点实测通过；zsh / pwsh 脚本通过语法检查 |
+| 补全 | bash 全部补全点实测通过；新增 state / julia / vscode 上下文候选正确；bash `-n` 与 pwsh Parser 语法检查通过 |
 | 交叉编译 | `goreleaser release --snapshot` 复现六目标，归档名 `grit_<ver>_<os>_<arch>`；tar 内为 `grit`，zip 内为 `grit.exe` |
 | 发布配置 | `goreleaser check` 通过（v2.18.3）；`sha256sums.txt` 为 `<hash>  <name>`，与 release workflow 的解析一致 |
 | 版本注入 | 归档内 `grit.exe version` 输出 `grit 0.0.1-next`，与 snapshot 版本一致 |
 | 独立分发 | 二进制脱离仓库可 `propagate`：模板来自内嵌 FS，内容与仓库模板一致 |
 | 安装脚本 | `install.sh` / `install.ps1` 语法检查通过 |
-| 单元测试 | 43 项，`go test ./...` 通过 |
+| 单元测试 | 71 项，`go test ./...` 通过 |
 
 ## 安装
 
@@ -348,7 +407,7 @@ goreleaser release --snapshot --clean   # 复现 CI 的六目标归档，不发�
 | darwin/amd64、darwin/arm64 | `grit_<ver>_darwin_<arch>.tar.gz` |
 | windows/amd64、windows/arm64 | `grit_<ver>_windows_<arch>.zip` |
 
-snapshot 与正式发布共用同一套命名模板，所以 PR 上验收到的产物结构与 Release 完全一致。二进制 `CGO_ENABLED=0` + `-s -w -trimpath`，约 3.6 MB（压缩后 1.3–1.5 MB）；版本号经 `-X main.version={{ .Version }}` 注入，`grit version` 可核对。
+snapshot 与正式发布共用同一套命名模板，所以 PR 上验收到的产物结构与 Release 完全一致。二进制 `CGO_ENABLED=0` + `-s -w -trimpath`，约 3.5 MB（压缩后 1.3–1.5 MB）；版本号经 `-X main.version={{ .Version }}` 注入，`grit version` 可核对。
 
 发版方式是纯标签驱动：
 
@@ -359,8 +418,6 @@ git push origin v0.1.0
 
 ## 尚未实现
 
-- `lang_julia` 的环境管理（多前缀 + 复杂条件，属 L3）
-- `vscl` 等缓存清理命令、`pdref`（固定输出文件名，需要额外字段）
 - 发布流水线尚未跑过真实 tag：`goreleaser` 建 Release 与 Scoop manifest 补发这两步待首次 `v*` 验证
-- zsh / pwsh 补全只做了语法检查，未在真实交互式会话里逐键验证
-- `requires` 只用于 `--only-installed` 过滤；运行时缺工具才报错，尚无启动期检查
+- zsh 补全只做了人工语法审读（本机没有 zsh 可做逐键验证）；pwsh 补全已过 `Parser::ParseFile` 语法检查，仍未在真实交互式会话里逐键验证
+- `self-update` 仍按仓库模式实现：要求配置目录本身是 git 仓库。独立分发模式（`~/.config/grit`）下更新本体需要改用 Release 下载，这一步未做

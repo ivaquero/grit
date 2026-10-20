@@ -6,3 +6,5 @@ requires = "code"
 is = "code --install-extension {0}"
 us = "code --uninstall-extension {0}"
 ls = "code --list-extensions"
+# 缓存清理是文件操作，走 L2；-a 才会动 workspaceStorage，-n 只预演。
+cl = "grit vscode clean {0}"

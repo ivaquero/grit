@@ -31,6 +31,10 @@ func (s *posix) Export(key, value string) string {
 	return fmt.Sprintf("export %s=%s", key, posixQuote(value))
 }
 
+func (s *posix) Unset(key string) string {
+	return fmt.Sprintf("unset %s", key)
+}
+
 func (s *posix) Assoc(name string, pairs [][2]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "if [[ -n ${ZSH_VERSION:-} ]]; then typeset -gA %s; else declare -A %s; fi\n", name, name)
@@ -71,6 +75,10 @@ func (s *pwsh) State(cmdName, plugin, action string) string {
 
 func (s *pwsh) Export(key, value string) string {
 	return fmt.Sprintf("$env:%s = %s", key, pwshQuote(value))
+}
+
+func (s *pwsh) Unset(key string) string {
+	return fmt.Sprintf("Remove-Item Env:%s -ErrorAction SilentlyContinue", key)
 }
 
 func (s *pwsh) Assoc(name string, pairs [][2]string) string {

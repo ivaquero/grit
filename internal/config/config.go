@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -39,7 +40,22 @@ type Convert struct {
 	Args     []string `toml:"args"`
 	Engine   bool     `toml:"engine"` // 需要探测 pdf 引擎
 	Stdout   bool     `toml:"stdout"` // 命令把结果写到 stdout，由 grit 落盘
+	Out      string   `toml:"out"`    // 固定输出文件名；设置时不从输入推导
 	OS       string   `toml:"os"`
+}
+
+// NeedsInput 判断转换是否必须带输入文件。
+// 固定输出名的规则（如 pdref）从模板生成结果，可以不带文件调用。
+func (c *Convert) NeedsInput() bool {
+	if c.Out == "" {
+		return true
+	}
+	for _, a := range c.Args {
+		if strings.Contains(a, "{in}") {
+			return true
+		}
+	}
+	return false
 }
 
 // Element 是 GRIT_ELEMENT 注册表中的一项，平台差异在这里表达，不在代码里。
