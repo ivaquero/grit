@@ -1,3 +1,4 @@
+# VS Code：扩展管理是纯转发，缓存清理需要 Go 侧计算路径。
 name = "vscode"
 abbr = "vs"
 requires = "code"
@@ -6,5 +7,9 @@ requires = "code"
 is = "code --install-extension {0}"
 us = "code --uninstall-extension {0}"
 ls = "code --list-extensions"
-# 缓存清理是文件操作，走 L2；-a 才会动 workspaceStorage，-n 只预演。
-cl = "grit vscode clean {0}"
+
+# 缓存清理是文件操作，走 `grit run vscode <key>`。
+# -a 才会动 workspaceStorage，-n 只预演。
+[run]
+vsdir = { runner = "vscode", op = "dir" }
+vscl = { runner = "vscode", op = "clean" }

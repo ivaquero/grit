@@ -107,7 +107,7 @@ func TestCandidatesStateActions(t *testing.T) {
 	}
 }
 
-func TestCandidatesJulia(t *testing.T) {
+func TestCandidatesJuliaEnvs(t *testing.T) {
 	cu := &custom.Config{Env: custom.Env{Julia: map[string]string{"t": "/tmp/t", "b": "/tmp/b"}}}
 	got, err := Candidates("julia-envs", &config.Config{}, cu)
 	if err != nil {
@@ -116,40 +116,68 @@ func TestCandidatesJulia(t *testing.T) {
 	if len(got) != 2 || got[0] != "b" || got[1] != "t" {
 		t.Fatalf("got %v", got)
 	}
+}
 
-	ops, err := Candidates("julia-ops", &config.Config{}, cu)
+// grit run 的两层补全：先给声明了 [run] 的插件名，再给该插件的命令名。
+func TestCandidatesRun(t *testing.T) {
+	cfg := &config.Config{
+		Order: []string{"julia", "scoop"},
+		Plugins: map[string]*config.Plugin{
+			"julia": {Name: "julia", Abbr: "jl", Run: map[string]config.Run{
+				"jlis":  {Runner: "julia", Op: "add"},
+				"jleat": {Runner: "julia", Op: "activate", State: true},
+			}},
+			"scoop": {Name: "scoop", Abbr: "sc", Actions: map[string]string{"is": "scoop install {0}"}},
+		},
+	}
+
+	plugins, err := Candidates("run-plugins", cfg, &custom.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"activate", "add", "leaves"} {
-		if !slices.Contains(ops, want) {
-			t.Fatalf("missing operation %q in %v", want, ops)
+	// 只有 [run] 非空的插件才需要通过 grit run 调用。
+	if len(plugins) != 1 || plugins[0] != "julia" {
+		t.Fatalf("got %v", plugins)
+	}
+
+	acts, err := Candidates("run-actions", cfg, &custom.Config{}, "julia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acts) != 2 || acts[0] != "jleat" || acts[1] != "jlis" {
+		t.Fatalf("got %v", acts)
+	}
+
+	for _, extra := range [][]string{nil, {"ghost"}} {
+		got, err := Candidates("run-actions", cfg, &custom.Config{}, extra...)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-
-	vsc, err := Candidates("vscode-actions", &config.Config{}, cu)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(vsc) != 2 || vsc[0] != "dir" || vsc[1] != "clean" {
-		t.Fatalf("got %v", vsc)
+		if len(got) != 0 {
+			t.Fatalf("extra=%v: got %v", extra, got)
+		}
 	}
 }
 
-// 新增子命令必须出现在第一层补全里。
+// 新增子命令必须出现在第一层补全里；工具名不再作为子命令出现。
 func TestSubcommandsCoverNewCommands(t *testing.T) {
 	got, err := Candidates("subcommands", &config.Config{}, &custom.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"julia", "vscode", "doctor"} {
+	for _, want := range []string{"run", "doctor"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("missing subcommand %q", want)
 		}
 	}
+	for _, banned := range []string{"julia", "vscode"} {
+		if slices.Contains(got, banned) {
+			t.Fatalf("%q must not be a subcommand", banned)
+		}
+	}
 	// 脚本里出现的每个上下文都必须真实存在。
 	ctxs := Contexts()
-	for _, c := range []string{"state-actions", "julia-ops", "julia-envs", "vscode-actions"} {
+	for _, c := range []string{"state-actions", "run-plugins", "run-actions", "julia-envs"} {
 		if !slices.Contains(ctxs, c) {
 			t.Fatalf("context %q not registered", c)
 		}

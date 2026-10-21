@@ -52,17 +52,14 @@ _grit_complete() {
                 COMPREPLY=( $(compgen -f -- "$cur") )
             fi
             ;;
-        julia)
+        run)
             if (( COMP_CWORD == 2 )); then
-                COMPREPLY=( $(compgen -W "$(grit complete julia-ops)" -- "$cur") )
-            elif [[ "${COMP_WORDS[2]}" == "activate" ]]; then
-                COMPREPLY=( $(compgen -W "$(grit complete julia-envs)" -- "$cur") )
+                COMPREPLY=( $(compgen -W "$(grit complete run-plugins)" -- "$cur") )
+            elif (( COMP_CWORD == 3 )); then
+                COMPREPLY=( $(compgen -W "$(grit complete run-actions "${COMP_WORDS[2]}")" -- "$cur") )
             else
                 COMPREPLY=( $(compgen -f -- "$cur") )
             fi
-            ;;
-        vscode)
-            COMPREPLY=( $(compgen -W "$(grit complete vscode-actions)" -- "$cur") )
             ;;
         list)
             COMPREPLY=( $(compgen -W "$(grit complete list-targets)" -- "$cur") )
@@ -136,17 +133,14 @@ _grit_complete() {
                 _files
             fi
             ;;
-        julia)
+        run)
             if (( CURRENT == 3 )); then
-                compadd -- ${(f)"$(grit complete julia-ops)"}
-            elif [[ $words[3] == activate ]]; then
-                compadd -- ${(f)"$(grit complete julia-envs)"}
+                compadd -- ${(f)"$(grit complete run-plugins)"}
+            elif (( CURRENT == 4 )); then
+                compadd -- ${(f)"$(grit complete run-actions $words[3])"}
             else
                 _files
             fi
-            ;;
-        vscode)
-            compadd -- ${(f)"$(grit complete vscode-actions)"}
             ;;
         list)
             compadd -- ${(f)"$(grit complete list-targets)"}
@@ -204,13 +198,10 @@ Register-ArgumentCompleter -CommandName grit -ScriptBlock {
                 if ($elements.Count -le 3) { $cands = & grit complete plugins }
                 elseif ($elements.Count -le 4) { $cands = & grit complete state-actions $elements[2].Value }
             }
-            'julia' {
-                if ($elements.Count -le 3) { $cands = & grit complete julia-ops }
-                elseif ($elements.Count -le 4 -and $elements[2].Value -eq 'activate') {
-                    $cands = & grit complete julia-envs
-                }
+            'run' {
+                if ($elements.Count -le 3) { $cands = & grit complete run-plugins }
+                elseif ($elements.Count -le 4) { $cands = & grit complete run-actions $elements[2].Value }
             }
-            'vscode' { $cands = & grit complete vscode-actions }
             'list' { $cands = & grit complete list-targets }
             'completion' { $cands = @('--shell') + (& grit complete shells) }
         }

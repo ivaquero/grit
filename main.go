@@ -57,10 +57,8 @@ func main() {
 		err = cmdSelfUpdate(os.Args[2:])
 	case "conv":
 		err = cmdConv(os.Args[2:])
-	case "julia":
-		err = cmdJulia(os.Args[2:])
-	case "vscode":
-		err = cmdVSCode(os.Args[2:])
+	case "run":
+		err = cmdRun(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
 	case "complete":
@@ -85,12 +83,9 @@ func usage() {
   grit init --shell <bash|zsh|pwsh> [--only-installed] [--check]
                                     generate shell integration
   grit state <plugin> <action> [args] print shell code to eval (state channel)
+  grit run <plugin> <action> [args]  run a declared action that needs Go-side logic
   grit shell export <key> <value>     print one export in the target shell syntax
   grit file <backup|restore|catalyze|propagate> [-n] <key>...
-  grit julia <op> [pkg...] [--env <name>]
-                                    manage Julia environments and packages
-  grit vscode <dir|clean> [-a] [-n] [--data-dir <path>]
-                                    locate or clean VS Code caches
   grit doctor [--strict]              check required commands and references
   grit migrate [--from <json>] [--to <toml>] [-n] [-f]
   grit self-update [-f] [--version <tag>] [-n]
@@ -131,6 +126,9 @@ func cmdInit(args []string) error {
 	}
 	cfg, err := loadConfig()
 	if err != nil {
+		return err
+	}
+	if err := checkRunners(cfg); err != nil {
 		return err
 	}
 
@@ -201,6 +199,11 @@ func cmdInit(args []string) error {
 		for _, k := range sortedKeys(p.Actions) {
 			b.WriteString(sh.Alias(p.Abbr+k, p.Actions[k]) + "\n")
 		}
+		// run 的 key 是完整命令名，统一走 grit run 这一个入口：
+		// julia / vscode 存在与否不影响命令树，新增插件不必再加子命令。
+		for _, k := range sortedRunKeys(p.Run, false) {
+			b.WriteString(sh.Alias(k, "grit run "+p.Name+" "+k+" {0}") + "\n")
+		}
 	}
 
 	b.WriteString("\n# --- conversions ---\n")
@@ -225,6 +228,11 @@ func cmdInit(args []string) error {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
+			b.WriteString(sh.State(k, p.Name, k) + "\n")
+		}
+		// 标了 state 的 run 条目走同一条 eval 通道：
+		// 执行器只打印 shell 代码，真正改环境的是父 shell。
+		for _, k := range sortedRunKeys(p.Run, true) {
 			b.WriteString(sh.State(k, p.Name, k) + "\n")
 		}
 	}
@@ -260,6 +268,11 @@ func cmdState(args []string) error {
 	}
 	tmpl, ok := p.State[action]
 	if !ok {
+		// [run] 里标了 state 的条目属于同一条 eval 通道：
+		// 它没有 shell 模板，输出由执行器现算，但仍然只打印 shell 代码。
+		if r, isRun := p.Run[action]; isRun && r.State {
+			return cmdRun(args)
+		}
 		return fmt.Errorf("plugin %q has no state action %q", pluginName, action)
 	}
 
@@ -268,21 +281,7 @@ func cmdState(args []string) error {
 		return err
 	}
 
-	cmdline := strings.ReplaceAll(tmpl, "{shell}", sh.Interpreter())
-	if self, e := os.Executable(); e == nil {
-		cmdline = strings.ReplaceAll(cmdline, "{self}", sh.Quote(self))
-	}
-	if len(rest) > 0 {
-		quoted := make([]string, len(rest))
-		for i, a := range rest {
-			quoted[i] = sh.Quote(a)
-		}
-		cmdline = strings.ReplaceAll(cmdline, "{0}", strings.Join(quoted, " "))
-	} else {
-		// 无参数时把占位符连同前导空格一起去掉，让模板退化成无参调用。
-		cmdline = strings.ReplaceAll(cmdline, " {0}", "")
-	}
-
+	cmdline := renderTemplate(sh, tmpl, rest)
 	return runShell(sh, cmdline)
 }
 
@@ -373,12 +372,36 @@ func cmdList(args []string) error {
 		for _, name := range cfg.Order {
 			p := cfg.Plugins[name]
 			fmt.Printf("%s (%s)\n", p.Name, p.Abbr)
+			// 先算列宽：run / state 的 key 是完整命令名，长短不一（jlenvs 比 jlis 长）。
+			width := 0
+			for k := range p.Actions {
+				if n := len(p.Abbr + k); n > width {
+					width = n
+				}
+			}
+			for k := range p.Run {
+				if len(k) > width {
+					width = len(k)
+				}
+			}
+			for k := range p.State {
+				if len(k) > width {
+					width = len(k)
+				}
+			}
 			for _, k := range sortedKeys(p.Actions) {
-				fmt.Printf("  %s%-4s exec   %s\n", p.Abbr, k, p.Actions[k])
+				fmt.Printf("  %-*s %-4s %s\n", width, p.Abbr+k, "exec", p.Actions[k])
+			}
+			for _, k := range sortedRunKeys(p.Run, false) {
+				fmt.Printf("  %-*s %-4s grit run %s %s\n", width, k, "run", p.Name, k)
+			}
+			for _, k := range sortedRunKeys(p.Run, true) {
+				// eval 通道：执行器只打印 shell 代码，改环境的是父 shell。
+				fmt.Printf("  %-*s %-4s grit run %s %s  [eval]\n", width, k, "run", p.Name, k)
 			}
 			for _, k := range sortedKeys(p.State) {
 				// state 的 key 已经是完整命令名。
-				fmt.Printf("  %-5s state  %s\n", k, p.State[k])
+				fmt.Printf("  %-*s %-4s %s\n", width, k, "state", p.State[k])
 			}
 		}
 	case "elements":
@@ -436,6 +459,34 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// sortedRunKeys 取出 [run] 表里属于指定通道的 key，已排序。
+// state 为真的是 eval 通道（执行器只打印 shell 代码），其余直接执行。
+func sortedRunKeys(m map[string]config.Run, state bool) []string {
+	out := make([]string, 0, len(m))
+	for k, r := range m {
+		if r.State == state {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkRunners 在生成之前校验执行器名：
+// 写出一条一调用就报 unknown runner 的 alias 比直接失败更糟。
+func checkRunners(cfg *config.Config) error {
+	for _, name := range cfg.Order {
+		for k, r := range cfg.Plugins[name].Run {
+			switch r.Runner {
+			case runnerJulia, runnerVSCode:
+			default:
+				return fmt.Errorf("%s/%s: unknown runner %q", name, k, r.Runner)
+			}
+		}
+	}
+	return nil
 }
 
 // matchesOS 判断声明里的平台限定是否适用于当前系统。
@@ -687,15 +738,80 @@ func cmdCompletion(args []string) error {
 	return err
 }
 
-// cmdJulia 管理 Julia 环境（L3）与包操作（L2）。
+// runner 名取自 [run] 表的 runner 字段，是内部标识，不出现在命令树里。
+const (
+	runnerJulia  = "julia"
+	runnerVSCode = "vscode"
+)
+
+// cmdRun 是 L2 的统一入口：所有「参数变换无法用静态模板表达」的动作都从这里进来。
+//
+// 命令树里因此不再有工具名 —— julia / vscode 只是插件名，
+// 新增同类工具时改配置即可，不必再加一个子命令。
+func cmdRun(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: grit run <plugin> <action> [args...]")
+	}
+	pluginName, action, rest := args[0], args[1], args[2:]
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	p, ok := cfg.Plugin(pluginName)
+	if !ok {
+		return fmt.Errorf("unknown plugin %q", pluginName)
+	}
+
+	if r, ok := p.Run[action]; ok {
+		switch r.Runner {
+		case runnerJulia:
+			return runJulia(r.Op, rest)
+		case runnerVSCode:
+			return runVSCode(r.Op, rest)
+		}
+		return fmt.Errorf("%s/%s: unknown runner %q", pluginName, action, r.Runner)
+	}
+
+	// 纯转发模板也接受从这个入口调用：占位符替换规则与 state 通道一致，
+	// 区别只在输出——这里直接执行，state 通道交给父 shell eval。
+	tmpl, ok := p.Actions[action]
+	if !ok {
+		return fmt.Errorf("plugin %q has no action %q", pluginName, action)
+	}
+	sh, err := targetShell("", nil)
+	if err != nil {
+		return err
+	}
+	return runShell(sh, renderTemplate(sh, tmpl, rest))
+}
+
+// renderTemplate 把 {shell} / {self} / {0} 替换成目标 shell 的等价写法。
+func renderTemplate(sh shell.Shell, tmpl string, args []string) string {
+	cmdline := strings.ReplaceAll(tmpl, "{shell}", sh.Interpreter())
+	if self, e := os.Executable(); e == nil {
+		cmdline = strings.ReplaceAll(cmdline, "{self}", sh.Quote(self))
+	}
+	if len(args) > 0 {
+		quoted := make([]string, len(args))
+		for i, a := range args {
+			quoted[i] = sh.Quote(a)
+		}
+		return strings.ReplaceAll(cmdline, "{0}", strings.Join(quoted, " "))
+	}
+	// 无参数时把占位符连同前导空格一起去掉，让模板退化成无参调用。
+	return strings.ReplaceAll(cmdline, " {0}", "")
+}
+
+// runJulia 管理 Julia 环境（L3）与包操作（L2）。
 //
 // 环境动作把 JULIA_PROJECT 写回父 shell；包操作把参数渲染成 Pkg 表达式
-// 交给 julia 子进程。两者的分流点就在这里，不在 TOML 里 ——
-// 因为「参数变成 Julia 数组」这一步无法用静态模板表达。
-func cmdJulia(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: grit julia <%s> [pkg...] [--env <name>]",
-			strings.Join(juliamgr.Ops, "|"))
+// 交给 julia 子进程。这一层之所以留在 Go 里，是因为
+// 「包名列表变成 Julia 数组字面量」无法用静态模板表达。
+func runJulia(op string, args []string) error {
+	if !juliamgr.Valid(op) {
+		return fmt.Errorf("unknown julia operation %q (want one of %s)",
+			op, strings.Join(juliamgr.Ops, ", "))
 	}
 
 	sh, err := targetShell("", nil)
@@ -709,7 +825,7 @@ func cmdJulia(args []string) error {
 		return err
 	}
 
-	// --env 可以出现在任意位置：grit julia add --env t A B
+	// --env 可以出现在任意位置：jlis --env t A B
 	envName := ""
 	rest := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -724,15 +840,7 @@ func cmdJulia(args []string) error {
 			rest = append(rest, args[i])
 		}
 	}
-	if len(rest) == 0 {
-		return fmt.Errorf("missing julia operation")
-	}
-
-	op, pkgs := rest[0], rest[1:]
-	if !juliamgr.Valid(op) {
-		return fmt.Errorf("unknown julia operation %q (want one of %s)",
-			op, strings.Join(juliamgr.Ops, ", "))
-	}
+	pkgs := rest
 
 	switch op {
 	case juliamgr.OpActivate:
@@ -827,30 +935,24 @@ func cmdJulia(args []string) error {
 	})
 }
 
-// cmdVSCode 定位或清理 VS Code 的缓存。
+// runVSCode 定位或清理 VS Code 的缓存。
 // 默认只清无状态缓存；workspaceStorage 需要 -a 明确要求。
-func cmdVSCode(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: grit vscode <dir|clean> [-a] [-n] [--data-dir <path>]")
-	}
-	sub := args[0]
-
+func runVSCode(op string, args []string) error {
 	all, dry, dataDir := false, false, ""
-	rest := args[1:]
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "-a", "--all":
 			all = true
 		case "-n", "--dry-run":
 			dry = true
 		case "--data-dir":
-			if i+1 >= len(rest) {
+			if i+1 >= len(args) {
 				return fmt.Errorf("--data-dir needs a path")
 			}
-			dataDir = rest[i+1]
+			dataDir = args[i+1]
 			i++
 		default:
-			return fmt.Errorf("unknown flag %q", rest[i])
+			return fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
 
@@ -859,13 +961,13 @@ func cmdVSCode(args []string) error {
 		return err
 	}
 
-	switch sub {
+	switch op {
 	case "dir":
 		fmt.Println(dir)
 		return nil
 	case "clean":
 	default:
-		return fmt.Errorf("unknown vscode subcommand %q (want dir or clean)", sub)
+		return fmt.Errorf("unknown vscode operation %q (want dir or clean)", op)
 	}
 
 	entries, err := vscode.Clean(vscode.Options{DataDir: dataDir, All: all, DryRun: dry})

@@ -18,14 +18,30 @@ type Alias struct {
 	OS   string `toml:"os"` // 空 = 全平台；其余取 runtime.GOOS 的值
 }
 
+// Run 是一条需要 Go 侧计算的动作声明。
+//
+// 声明它的理由与 State 相同：有些参数变换静态模板表达不了
+// （例如「包名列表变成 Julia 数组字面量」），只能由执行器现算。
+// key 是完整命令名，与 State 同一套约定 —— 需要计算的动作不走 abbr 拼接。
+type Run struct {
+	// Runner 是执行器名，由 main 侧的注册表分派。
+	Runner string `toml:"runner"`
+	// Op 是执行器内部的操作名，例如 add / clean。
+	Op string `toml:"op"`
+	// State 为真表示执行器输出的是 shell 代码，必须由父 shell eval。
+	// 这类条目会被渲染成包装函数而不是 alias。
+	State bool `toml:"state"`
+}
+
 // Plugin 描述一个包管理器或工具的能力矩阵。
-// Actions 走子进程直接执行；State 走 eval 通道回写父 shell。
+// Actions 是纯转发的静态模板；Run 走 Go 执行器；State 走 eval 通道回写父 shell。
 type Plugin struct {
 	Name     string            `toml:"name"`
 	Abbr     string            `toml:"abbr"`
 	Requires string            `toml:"requires"`
 	OS       string            `toml:"os"`
 	Actions  map[string]string `toml:"actions"`
+	Run      map[string]Run    `toml:"run"`
 	State    map[string]string `toml:"state"`
 }
 
@@ -171,6 +187,18 @@ func (p *Plugin) validate(file string) error {
 			return fmt.Errorf("%s: action %q is empty", file, k)
 		}
 	}
+	for k, r := range p.Run {
+		if r.Runner == "" {
+			return fmt.Errorf("%s: run %q has no runner", file, k)
+		}
+		if r.Op == "" {
+			return fmt.Errorf("%s: run %q has no op", file, k)
+		}
+		// 同一个命令名只能属于一条通道，否则生成结果取决于遍历顺序。
+		if _, dup := p.State[k]; dup {
+			return fmt.Errorf("%s: %q is declared in both [run] and [state]", file, k)
+		}
+	}
 	for k, v := range p.State {
 		if v == "" {
 			return fmt.Errorf("%s: state %q is empty", file, k)
@@ -200,13 +228,20 @@ func (c *Config) validate() error {
 			}
 			seen[cmd] = name + "/actions." + suffix
 		}
-		for suffix := range p.State {
-			// state 的 key 已经是完整命令名：前缀不规则（ceat 而非 cat）。
-			cmd := suffix
+		for cmd := range p.Run {
+			// run 的 key 已经是完整命令名，与 state 同一套口径；
+			// state 型 run 条目同样占用这个名字（渲染成包装函数）。
 			if prev, ok := seen[cmd]; ok {
-				return fmt.Errorf("duplicate command %q (%s/state.%s and %s)", cmd, name, suffix, prev)
+				return fmt.Errorf("duplicate command %q (%s/run.%s and %s)", cmd, name, cmd, prev)
 			}
-			seen[cmd] = name + "/state." + suffix
+			seen[cmd] = name + "/run." + cmd
+		}
+		for cmd := range p.State {
+			// state 的 key 已经是完整命令名：前缀不规则（ceat 而非 cat）。
+			if prev, ok := seen[cmd]; ok {
+				return fmt.Errorf("duplicate command %q (%s/state.%s and %s)", cmd, name, cmd, prev)
+			}
+			seen[cmd] = name + "/state." + cmd
 		}
 	}
 	return nil

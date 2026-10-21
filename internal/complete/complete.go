@@ -16,7 +16,7 @@ import (
 )
 
 var subcommands = []string{
-	"init", "state", "file", "shell", "julia", "vscode", "doctor",
+	"init", "state", "run", "file", "shell", "doctor",
 	"migrate", "self-update", "conv", "completion", "complete", "list", "version",
 }
 
@@ -24,14 +24,12 @@ var fileActions = []string{"backup", "restore", "catalyze", "propagate"}
 
 var listTargets = []string{"aliases", "plugins", "elements", "keys", "conv"}
 
-var vscodeActions = []string{"dir", "clean"}
-
 // Contexts 是 `grit complete` 接受的全部上下文。
 func Contexts() []string {
 	return []string{
 		"subcommands", "actions", "keys", "plugins", "converts", "ports",
-		"shells", "list-targets", "state-actions", "julia-ops", "julia-envs",
-		"vscode-actions",
+		"shells", "list-targets", "state-actions", "run-plugins", "run-actions",
+		"julia-envs",
 	}
 }
 
@@ -45,12 +43,8 @@ func Candidates(ctx string, cfg *config.Config, cu *custom.Config, extra ...stri
 		return append([]string(nil), fileActions...), nil
 	case "list-targets":
 		return append([]string(nil), listTargets...), nil
-	case "vscode-actions":
-		return append([]string(nil), vscodeActions...), nil
 	case "shells":
 		return []string{"bash", "zsh", "pwsh"}, nil
-	case "julia-ops":
-		return append([]string(nil), juliamgr.Ops...), nil
 
 	case "keys":
 		return elementKeys(cfg), nil
@@ -77,6 +71,34 @@ func Candidates(ctx string, cfg *config.Config, cu *custom.Config, extra ...stri
 	case "ports":
 		out := make([]string, 0, len(cu.ProxyPorts))
 		for k := range cu.ProxyPorts {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		return out, nil
+
+	case "run-plugins":
+		// 只有声明了 [run] 的插件才需要通过 grit run 调用。
+		out := make([]string, 0, len(cfg.Order))
+		for _, name := range cfg.Order {
+			if len(cfg.Plugins[name].Run) > 0 {
+				out = append(out, name)
+			}
+		}
+		sort.Strings(out)
+		return out, nil
+
+	case "run-actions":
+		// 第二层要插件名；缺失时静默返回空，避免打断用户输入。
+		if len(extra) == 0 || cfg == nil {
+			return nil, nil
+		}
+		p, ok := cfg.Plugin(extra[0])
+		if !ok {
+			return nil, nil
+		}
+		out := make([]string, 0, len(p.Run))
+		for k := range p.Run {
+			// run 的 key 就是完整命令名，不需要再拼 abbr。
 			out = append(out, k)
 		}
 		sort.Strings(out)
