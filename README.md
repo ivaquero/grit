@@ -61,15 +61,15 @@ flowchart LR
 | 层 | 形式 | 例子 |
 |---|---|---|
 | L1 纯转发 | TOML `[[alias]]` → native alias | `ll` `bis` `cis` |
-| L2 计算型 | Go 子命令，子进程执行 | `epf` `ipf` `jlis` `vscl` |
+| L2 计算型 | `grit run <plugin> <action>`，子进程执行 | `epf` `ipf` `jlis` `vscl` |
 | L3 状态型 | `eval "$(grit state ...)"` | `ceat` `ceq` `jleat` `pxy` |
 
-判定标准只有一条：**是否改变当前 shell 状态**。
+判定标准只有两条：**是否改变当前 shell 状态**决定进不进 L3；**静态模板能否表达**决定留在 L1 还是走 `grit run`。
 
 ## 目录
 
 ```text
-├── main.go                     CLI：init / state / file / julia / vscode / doctor / conv / shell / migrate / self-update / list
+├── main.go                     CLI：init / state / run / file / doctor / conv / shell / migrate / self-update / list
 ├── internal/complete/           shell 补全脚本与候选
 ├── internal/config/             TOML 模型、加载、冲突校验
 ├── internal/convert/            格式转换执行器
@@ -132,7 +132,7 @@ flowchart LR
 
 ## 插件矩阵
 
-16 个插件，命令名 = `abbr` + `actions` 的 key。
+16 个插件。`[actions]` 的命令名 = `abbr` + key；`[run]` 与 `[state]` 的 key 就是完整命令名。
 
 | 插件 | abbr | 平台 | 覆盖 |
 |---|---|---|---|
@@ -143,13 +143,13 @@ flowchart LR
 | `tlmgr` | `tl` | — | TeXLive 11 项 |
 | `cargo` | `cg` | — | 16 项，含 build / run / test / publish |
 | `rustup` | `rs` | — | component add / remove / list / update |
-| `julia` | `jl` | — | 16 项，含 status / leaves / maturity + `jleat` / `jeq` 环境激活（L3） |
+| `julia` | `jl` | — | 3 项纯转发 + 13 项 `grit run` + `jleat` / `jeq` 环境激活（L3） |
 | `winget` | `w` | windows | 12 项，含 source 管理 |
 | `wsl` | `wsl` | windows | install / uninstall / list / list-online |
 | `apt` | `a` | linux | 13 项，含 depends 与 source 管理 |
 | `mas` | `m` | darwin | 7 项 |
 | `ollama` | `ol` | — | 9 项 |
-| `vscode` | `vs` | — | 扩展 install / uninstall / list + `vscl` 缓存清理 |
+| `vscode` | `vs` | — | 扩展 install / uninstall / list（纯转发）+ `vsdir` / `vscl` 走 `grit run` |
 | `proxy` | `p` | — | `pxy` 设置/清除代理（L3） |
 | `demo` | `d` | — | state 通道的验证样例 |
 
@@ -202,9 +202,9 @@ grit completion --shell pwsh | Out-String | Invoke-Expression
 | `grit file <TAB>` | backup / restore / catalyze / propagate |
 | `grit file backup <TAB>` | 当前平台的 element key |
 | `grit state <plugin> <TAB>` | 该插件的 state 动作（`jleat` / `jeq`） |
-| `grit julia <TAB>` | 操作名（activate / add / leaves …） |
-| `grit julia activate <TAB>` / `jleat <TAB>` | `[env.julia]` 的短名 |
-| `grit vscode <TAB>` | dir / clean |
+| `grit run <TAB>` | 声明了 `[run]` 的插件名 |
+| `grit run julia <TAB>` | 该插件的 `[run]` 命令名（`jlis` / `jlmt` …） |
+| `jleat <TAB>` | `[env.julia]` 的短名 |
 | `grit conv <TAB>` | 转换名（去重后） |
 | `epf` / `ipf` / `iif` / `ppgf <TAB>` | element key |
 | `pxy <TAB>` | `proxy_ports` 的别名 |
@@ -253,6 +253,18 @@ ceat = "conda shell.{shell} activate {0}"
 
 > `[state]` 的 key 是完整命令名而非后缀，因为前缀不规则 —— `conda` 的 `abbr` 是 `c`，但环境动作叫 `ceat` 不是 `cat`。骨架第一版把这两者拼在一起，装配器当场撞上 `cat` 别名。
 
+**`[run]`：模板算不出来的动作。** 参数需要现算时（例如包名列表要变成 Julia 数组），静态模板无能为力，改为声明一个执行器：
+
+```toml
+[run]                  # run：生成 alias，命令名 = key（完整名）
+jlis = { runner = "julia", op = "add" }
+jleat = { runner = "julia", op = "activate", state = true }  # state = true 走 eval 包装
+```
+
+`runner` 由二进制里的执行器注册表分派，`op` 是执行器内部的动作名。
+生成的命令都是 `grit run <plugin> <key> [args]`，所以命令树里不出现工具名 ——
+再加一个同类工具不必新增子命令。
+
 ### Julia：环境是变量，包是子进程
 
 `lang_julia.toml` 是唯一同时用满两条通道的插件：
@@ -262,14 +274,23 @@ name = "julia"
 abbr = "jl"
 requires = "julia"
 
+# 模板能完整表达的动作，纯转发。
 [actions]
-is = "grit julia add {0}"            # jlis：参数渲染成 Pkg.add([...])，子进程
-lv = "grit julia leaves"             # jllv：纯 Go 读 Project.toml
+h = "julia --help"
 
-[state]
-jleat = "{self} julia activate {0}"  # 写 JULIA_PROJECT，父 shell eval
-jeq = "{self} julia deactivate"
+# 需要现算的动作：key 是完整命令名，统一由 grit run 路由。
+[run]
+jlis = { runner = "julia", op = "add" }      # 参数渲染成 Pkg.add([...])，子进程
+jllv = { runner = "julia", op = "leaves" }   # 纯 Go 读 Project.toml
+
+# state = true：执行器只打印 shell 代码，必须由父 shell eval。
+jleat = { runner = "julia", op = "activate", state = true }
+jeq = { runner = "julia", op = "deactivate", state = true }
 ```
+
+命令树里没有 `julia` 这个子命令 —— `grit run <plugin> <action>` 是唯一的 L2 入口。
+工具名只活在配置里，所以再加一个同类工具（例如另一个语言的包管理器）不需要动 CLI：
+写 `[run]` 声明即可，`grit init` 会生成对应的短名。
 
 环境名按四条规则解析，顺序固定：
 
@@ -296,12 +317,12 @@ grit state proxy pxy c            # 按别名设置代理；无参数则清除
 grit state julia jleat t          # 激活 Julia 环境（写 JULIA_PROJECT）
 grit file backup zs               # L2：备份
 grit file restore zs -n           # L2：恢复（dry-run）
-grit julia envs                   # 列出 [env.julia] 短名与展开后的路径
-grit julia add Example --env t    # 在指定环境装包
-grit julia leaves                 # 直接依赖，读 Project.toml
-grit julia maturity               # Manifest 里 0.x 版本的比例
-grit vscode dir                   # 打印 VS Code 数据目录
-grit vscode clean -n              # 预演缓存清理；-a 才动 workspaceStorage
+grit run julia jlenvs             # L2：列出 [env.julia] 短名与展开后的路径
+grit run julia jlis Example --env t   # L2：在指定环境装包
+grit run julia jllv               # L2：直接依赖，读 Project.toml
+grit run julia jlmt               # L2：Manifest 里 0.x 版本的比例
+grit run vscode vsdir             # L2：打印 VS Code 数据目录
+grit run vscode vscl -n           # L2：预演缓存清理；-a 才动 workspaceStorage
 grit doctor                       # 体检：依赖、配置、引用
 grit doctor --strict              # 缺命令时返回非零，便于 CI
 grit migrate -n                   # 预演 custom.json -> custom.toml
@@ -335,7 +356,7 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 | bash / zsh 输出 | alias + 关联数组 + eval 包装语法正确 |
 | pwsh 输出 | `function` + `$Global:` hashtable 语法正确 |
 | 平台过滤 | Windows 宿主不生成 `ais` / `mis`，生成 `wis` / `wslis` |
-| 全量生成 | 150 条 alias（Windows 宿主，含 13 条转换短名），`ceat` / `jleat` / `pxy` 等 state 包装齐全 |
+| 全量生成 | 151 条 alias（Windows 宿主，含 13 条转换短名）+ 6 条 eval 包装，`ceat` / `jleat` / `pxy` 齐全 |
 | 按需生成 | `--only-installed` 跳过项在 stderr 各报一次，不重复 |
 | `eval` 通道 | 变量回写成功；`ceat` / `pxy` 均走通 |
 | Julia 环境 | `jleat @v1.13` 后 `JULIA_PROJECT` 生效，`jeq` 清空；短名 / 绝对路径 / `@named` 三种输入均正确解析 |
@@ -356,13 +377,13 @@ grit init --shell pwsh | Out-String | Invoke-Expression
 | in_ext 选择 | `tomd` 对 `.ipynb` 正确切到 jupytext |
 | 固定输出名 | `grit conv pdref` 无输入生成 11 KB 的 `custom-reference.docx` |
 | 覆盖保护 | 输出与输入同名时拒绝执行 |
-| 补全 | bash 全部补全点实测通过；新增 state / julia / vscode 上下文候选正确；bash `-n` 与 pwsh Parser 语法检查通过 |
+| 补全 | bash 全部补全点实测通过；`state` / `run` 两层上下文候选正确；bash `-n` 与 pwsh Parser 语法检查通过 |
 | 交叉编译 | `goreleaser release --snapshot` 复现六目标，归档名 `grit_<ver>_<os>_<arch>`；tar 内为 `grit`，zip 内为 `grit.exe` |
 | 发布配置 | `goreleaser check` 通过（v2.18.3）；`sha256sums.txt` 为 `<hash>  <name>`，与 release workflow 的解析一致 |
 | 版本注入 | 归档内 `grit.exe version` 输出 `grit 0.0.1-next`，与 snapshot 版本一致 |
 | 独立分发 | 二进制脱离仓库可 `propagate`：模板来自内嵌 FS，内容与仓库模板一致 |
 | 安装脚本 | `install.sh` / `install.ps1` 语法检查通过 |
-| 单元测试 | 82 项，`go test ./...` 通过 |
+| 单元测试 | 86 项，`go test ./...` 通过 |
 
 ## 安装
 

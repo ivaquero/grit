@@ -48,7 +48,7 @@ const (
 	OpMaturity = "maturity"
 )
 
-// Ops 是 grit julia 接受的全部操作，顺序即帮助与补全的顺序。
+// Ops 是执行器接受的全部操作，顺序即帮助与补全的顺序。
 var Ops = []string{
 	OpActivate, OpDeactivate, OpCurrent, OpEnvs,
 	OpAdd, OpRm, OpUpdate, OpPin, OpFree, OpBuild, OpTest,

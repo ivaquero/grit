@@ -10,8 +10,8 @@ import (
 func loadPlugin(t *testing.T, plugin string) (*Config, error) {
 	t.Helper()
 	fsys := fstest.MapFS{
-		"d/aliases.toml":  &fstest.MapFile{Data: []byte("")},
-		"d/registry.toml": &fstest.MapFile{Data: []byte("")},
+		"d/aliases.toml":   &fstest.MapFile{Data: []byte("")},
+		"d/registry.toml":  &fstest.MapFile{Data: []byte("")},
 		"d/plugins/p.toml": &fstest.MapFile{Data: []byte(plugin)},
 	}
 	return Load(fsys, "d")
