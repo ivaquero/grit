@@ -11,6 +11,8 @@ import (
 // Env 是环境别名表：把短名映射到具体环境。
 // julia_win 是平台变体，与 oxide_folder_win 同一套约定。
 type Env struct {
+	// Conda 仅由 migrate 迁移保留，运行期不被读取：conda 的 ceat 直接用原生环境名。
+	// 只有 Julia 的短名会被 juliamgr 展开。
 	Conda    map[string]string `toml:"conda,omitempty"`
 	Julia    map[string]string `toml:"julia,omitempty"`
 	JuliaWin map[string]string `toml:"julia_win,omitempty"`
@@ -20,6 +22,9 @@ type Env struct {
 type Config struct {
 	OxideFolder    string `toml:"oxide_folder,omitempty"`
 	OxideFolderWin string `toml:"oxide_folder_win,omitempty"`
+
+	// 以下字段运行期不被读取，仅为 `grit migrate` 从旧 custom.json 无损搬运而保留。
+	// 新配置不要依赖它们生效。
 	DownloadFolder string `toml:"download_folder,omitempty"`
 	StartupFolder  string `toml:"startup_folder,omitempty"`
 

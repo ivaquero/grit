@@ -360,7 +360,7 @@ func cmdList(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: grit list <aliases|plugins|elements>")
+		return fmt.Errorf("usage: grit list <aliases|plugins|elements|keys|conv>")
 	}
 
 	switch args[0] {

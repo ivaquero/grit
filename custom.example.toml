@@ -6,9 +6,6 @@ oxide_folder = "~/Documents/GitHub/backup"
 # Windows 专用覆盖。留空则回退到 oxide_folder。
 oxide_folder_win = ""
 
-download_folder = "~/Documents"
-startup_folder = ""
-
 # 备份路径表：key = bk + <ELEMENT key>，value 相对 oxide_folder。
 [oxides]
 bkzs = "shell/.zshrc"
@@ -19,20 +16,15 @@ bkvi = "shell/.vimrc"
 bkwz = "unix/wezterm.lua"
 bkss = "projects/starship.toml"
 
-# 要加载的插件（对应 defaults/plugins/<name>.toml 的 name）。
-plugins_load = ["pkg_brew", "pkg_conda", "pkg_scoop"]
-
 # 代理端口别名：pxy c 等价于 pxy 7890。
 [proxy_ports]
 c = 7890
 m = 7898
 v = 1080
 
-# 环境别名：把短名映射到具体环境。
-[env.conda]
-b = "base"
-k = "kaggle"
-
+# Julia 环境别名：把短名映射到环境目录，jleat / jeq 会展开。
+# 注意：conda 的 ceat 直接用 conda 原生环境名（如 ceat kaggle），不经 grit 展开，
+# 因此没有 env.conda 这张表。
 [env.julia]
 t = "Documents/GitHub/blog-julia/pluto-deployment-environment"
 

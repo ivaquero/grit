@@ -249,6 +249,8 @@ ls = "conda list"
 ceat = "conda shell.{shell} activate {0}"
 ```
 
+> **注意**：conda 的 `ceat` 直接把参数 `{0}` 交给 `conda activate`，使用 conda 原生环境名（如 `ceat kaggle`）。只有 Julia 的 `jleat` 会查 `[env.julia]` 做短名展开——两者行为不同，没有 `[env.conda]` 这张表。
+
 占位符：`{0}` 用户参数，`{shell}` 目标 shell 名，`{self}` 二进制自身路径。无参数时 `{0}` 连同前导空格一起移除。
 
 > `[state]` 的 key 是完整命令名而非后缀，因为前缀不规则 —— `conda` 的 `abbr` 是 `c`，但环境动作叫 `ceat` 不是 `cat`。骨架第一版把这两者拼在一起，装配器当场撞上 `cat` 别名。
