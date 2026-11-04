@@ -101,26 +101,19 @@ func loadConfig() (*config.Config, error) {
 	return config.Load(defaultsFS, "defaults")
 }
 
-// targetShell 解析目标 shell：--shell 优先，其次 GRIT_SHELL，最后 bash。
-func targetShell(explicit string, args []string) (shell.Shell, error) {
-	name := explicit
-	for i := 0; i < len(args); i++ {
-		if (args[i] == "--shell" || args[i] == "-s") && i+1 < len(args) {
-			name = args[i+1]
-			i++
-		}
-	}
-	if name == "" {
-		name = os.Getenv("GRIT_SHELL")
-	}
-	if name == "" {
-		name = "bash"
-	}
-	return shell.Get(name)
-}
-
 func cmdInit(args []string) error {
-	sh, err := targetShell("", args)
+	f := newFlagSet().
+		Value("shell", "-s").
+		Bool("only-installed").
+		Bool("check")
+	if err := f.parse(args); err != nil {
+		return err
+	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+
+	sh, err := resolveShell(f.value("shell"))
 	if err != nil {
 		return err
 	}
@@ -133,15 +126,7 @@ func cmdInit(args []string) error {
 	}
 
 	// 默认全量生成：命令暂时不在 PATH 不等于用户不需要那个别名。
-	onlyInstalled, check := false, false
-	for _, a := range args {
-		switch a {
-		case "--only-installed":
-			onlyInstalled = true
-		case "--check":
-			check = true
-		}
-	}
+	onlyInstalled, check := f.has("only-installed"), f.has("check")
 	// 每个插件只判定一次，避免 actions 与 state 各打印一遍跳过原因。
 	isEnabled := make(map[string]bool, len(cfg.Order))
 	for _, pname := range cfg.Order {
@@ -271,17 +256,20 @@ func cmdState(args []string) error {
 		// [run] 里标了 state 的条目属于同一条 eval 通道：
 		// 它没有 shell 模板，输出由执行器现算，但仍然只打印 shell 代码。
 		if r, isRun := p.Run[action]; isRun && r.State {
-			return cmdRun(args)
+			return dispatchRun(p, action, rest)
 		}
 		return fmt.Errorf("plugin %q has no state action %q", pluginName, action)
 	}
 
-	sh, err := targetShell("", nil)
+	sh, err := resolveShell("")
 	if err != nil {
 		return err
 	}
 
-	cmdline := renderTemplate(sh, tmpl, rest)
+	cmdline, err := renderTemplate(sh, tmpl, rest)
+	if err != nil {
+		return err
+	}
 	return runShell(sh, cmdline)
 }
 
@@ -304,7 +292,7 @@ func cmdShell(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: grit shell <export|proxy> ...")
 	}
-	sh, err := targetShell("", nil)
+	sh, err := resolveShell("")
 	if err != nil {
 		return err
 	}
@@ -336,7 +324,7 @@ func printProxy(sh shell.Shell, args []string) error {
 
 	port := args[0]
 	if len(port) < 2 {
-		cu, err := custom.Load(filepath.Join(gritRoot(false), "custom.toml"))
+		cu, err := custom.Load(filepath.Join(gritRoot(sh.Name() == "pwsh"), "custom.toml"))
 		if err != nil {
 			return err
 		}
@@ -406,7 +394,7 @@ func cmdList(args []string) error {
 		}
 	case "elements":
 		isWin := false
-		if sh, e := targetShell("", nil); e == nil {
+		if sh, e := resolveShell(""); e == nil {
 			isWin = sh.Name() == "pwsh"
 		}
 		for _, e := range cfg.Elements {
@@ -522,32 +510,22 @@ func cmdFile(args []string) error {
 		return fmt.Errorf("unknown action %q", args[0])
 	}
 
-	dry := false
-	var keys []string
-	for _, a := range args[1:] {
-		switch a {
-		case "-n", "--dry-run":
-			dry = true
-		default:
-			keys = append(keys, a)
-		}
+	f := newFlagSet().Bool("dry-run", "-n")
+	if err := f.parse(args[1:]); err != nil {
+		return err
 	}
+	dry := f.has("dry-run")
+	keys := f.Pos
 
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	sh, err := targetShell("", nil)
+	ctx, err := resolveContext("")
 	if err != nil {
 		return err
 	}
-	isWin := sh.Name() == "pwsh"
-	root := gritRoot(isWin)
-
-	cu, err := custom.Load(filepath.Join(root, "custom.toml"))
-	if err != nil {
-		return err
-	}
+	isWin, cu := ctx.isWin, ctx.cu
 
 	set := filemgr.Set{
 		Element:  map[string]string{},
@@ -581,32 +559,28 @@ func cmdFile(args []string) error {
 
 // cmdMigrate 把 custom.json 转成 custom.toml，一次性、可预演。
 func cmdMigrate(args []string) error {
-	root := gritRoot(false)
-	from := filepath.Join(root, "custom.json")
-	to := filepath.Join(root, "custom.toml")
-	force, dry := false, false
+	f := newFlagSet().
+		Value("from").
+		Value("to").
+		Bool("force", "-f").
+		Bool("dry-run", "-n")
+	if err := f.parse(args); err != nil {
+		return err
+	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+	force, dry := f.has("force"), f.has("dry-run")
 
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--from":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--from needs a path")
-			}
-			from = args[i+1]
-			i++
-		case "--to":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--to needs a path")
-			}
-			to = args[i+1]
-			i++
-		case "-f", "--force":
-			force = true
-		case "-n", "--dry-run":
-			dry = true
-		default:
-			return fmt.Errorf("unknown flag %q", args[i])
-		}
+	// migrate 是一次性引导动作，路径风格与目标 shell 无关：用非 Windows 默认根目录。
+	root := gritRoot(false)
+	from := f.value("from")
+	if from == "" {
+		from = filepath.Join(root, "custom.json")
+	}
+	to := f.value("to")
+	if to == "" {
+		to = filepath.Join(root, "custom.toml")
 	}
 
 	if _, err := os.Stat(from); err != nil {
@@ -642,23 +616,17 @@ func cmdMigrate(args []string) error {
 // cmdSelfUpdate 从 GitHub Release 更新本体。
 // 不依赖 git：独立分发模式与仓库模式走同一条路径。
 func cmdSelfUpdate(args []string) error {
-	force, dry, want := false, false, ""
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-f", "--force":
-			force = true
-		case "-n", "--dry-run":
-			dry = true
-		case "--version":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--version needs a tag")
-			}
-			want = args[i+1]
-			i++
-		default:
-			return fmt.Errorf("unknown flag %q", args[i])
-		}
+	f := newFlagSet().
+		Bool("force", "-f").
+		Bool("dry-run", "-n").
+		Value("version")
+	if err := f.parse(args); err != nil {
+		return err
 	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+	force, dry, want := f.has("force"), f.has("dry-run"), f.value("version")
 	return selfupdate.Run(selfupdate.Options{
 		Current: version,
 		Version: want,
@@ -710,11 +678,11 @@ func cmdComplete(args []string) error {
 	if err != nil {
 		return err
 	}
-	cu, err := custom.Load(filepath.Join(gritRoot(false), "custom.toml"))
+	ctx, err := resolveContext("")
 	if err != nil {
 		return err
 	}
-	vals, err := complete.Candidates(args[0], cfg, cu, args[1:]...)
+	vals, err := complete.Candidates(args[0], cfg, ctx.cu, args[1:]...)
 	if err != nil {
 		return err
 	}
@@ -726,7 +694,14 @@ func cmdComplete(args []string) error {
 
 // cmdCompletion 输出指定 shell 的补全脚本。
 func cmdCompletion(args []string) error {
-	sh, err := targetShell("", args)
+	f := newFlagSet().Value("shell", "-s")
+	if err := f.parse(args); err != nil {
+		return err
+	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+	sh, err := resolveShell(f.value("shell"))
 	if err != nil {
 		return err
 	}
@@ -762,7 +737,13 @@ func cmdRun(args []string) error {
 	if !ok {
 		return fmt.Errorf("unknown plugin %q", pluginName)
 	}
+	return dispatchRun(p, action, rest)
+}
 
+// dispatchRun 把一条声明路由到 [run] 执行器或 [actions] 转发模板。
+// grit run 与 grit state（eval 通道里标了 state 的 run 条目）共用它，
+// 后者因此不必再走一遍 cmdRun 的 loadConfig。
+func dispatchRun(p *config.Plugin, action string, rest []string) error {
 	if r, ok := p.Run[action]; ok {
 		switch r.Runner {
 		case runnerJulia:
@@ -770,26 +751,36 @@ func cmdRun(args []string) error {
 		case runnerVSCode:
 			return runVSCode(r.Op, rest)
 		}
-		return fmt.Errorf("%s/%s: unknown runner %q", pluginName, action, r.Runner)
+		return fmt.Errorf("%s/%s: unknown runner %q", p.Name, action, r.Runner)
 	}
 
 	// 纯转发模板也接受从这个入口调用：占位符替换规则与 state 通道一致，
 	// 区别只在输出——这里直接执行，state 通道交给父 shell eval。
 	tmpl, ok := p.Actions[action]
 	if !ok {
-		return fmt.Errorf("plugin %q has no action %q", pluginName, action)
+		return fmt.Errorf("plugin %q has no action %q", p.Name, action)
 	}
-	sh, err := targetShell("", nil)
+	sh, err := resolveShell("")
 	if err != nil {
 		return err
 	}
-	return runShell(sh, renderTemplate(sh, tmpl, rest))
+	cmdline, err := renderTemplate(sh, tmpl, rest)
+	if err != nil {
+		return err
+	}
+	return runShell(sh, cmdline)
 }
 
 // renderTemplate 把 {shell} / {self} / {0} 替换成目标 shell 的等价写法。
-func renderTemplate(sh shell.Shell, tmpl string, args []string) string {
+// 若模板用了 {self} 却定位不到当前可执行文件，返回错误而不是把 "{self}"
+// 原样留在要交给 shell 执行的命令里——那会产生一条无效命令。
+func renderTemplate(sh shell.Shell, tmpl string, args []string) (string, error) {
 	cmdline := strings.ReplaceAll(tmpl, "{shell}", sh.Interpreter())
-	if self, e := os.Executable(); e == nil {
+	if strings.Contains(cmdline, "{self}") {
+		self, e := os.Executable()
+		if e != nil {
+			return "", fmt.Errorf("template uses {self} but the running binary cannot be located: %w", e)
+		}
 		cmdline = strings.ReplaceAll(cmdline, "{self}", sh.Quote(self))
 	}
 	if len(args) > 0 {
@@ -797,10 +788,10 @@ func renderTemplate(sh shell.Shell, tmpl string, args []string) string {
 		for i, a := range args {
 			quoted[i] = sh.Quote(a)
 		}
-		return strings.ReplaceAll(cmdline, "{0}", strings.Join(quoted, " "))
+		return strings.ReplaceAll(cmdline, "{0}", strings.Join(quoted, " ")), nil
 	}
 	// 无参数时把占位符连同前导空格一起去掉，让模板退化成无参调用。
-	return strings.ReplaceAll(cmdline, " {0}", "")
+	return strings.ReplaceAll(cmdline, " {0}", ""), nil
 }
 
 // runJulia 管理 Julia 环境（L3）与包操作（L2）。
@@ -814,33 +805,19 @@ func runJulia(op string, args []string) error {
 			op, strings.Join(juliamgr.Ops, ", "))
 	}
 
-	sh, err := targetShell("", nil)
+	ctx, err := resolveContext("")
 	if err != nil {
 		return err
 	}
-	isWin := sh.Name() == "pwsh"
-	root := gritRoot(isWin)
-	cu, err := custom.Load(filepath.Join(root, "custom.toml"))
-	if err != nil {
-		return err
-	}
+	sh, isWin, cu := ctx.sh, ctx.isWin, ctx.cu
 
 	// --env 可以出现在任意位置：jlis --env t A B
-	envName := ""
-	rest := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--env", "-e":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--env needs an environment name")
-			}
-			envName = args[i+1]
-			i++
-		default:
-			rest = append(rest, args[i])
-		}
+	f := newFlagSet().Value("env", "-e")
+	if err := f.parse(args); err != nil {
+		return err
 	}
-	pkgs := rest
+	envName := f.value("env")
+	pkgs := f.Pos
 
 	switch op {
 	case juliamgr.OpActivate:
@@ -938,23 +915,17 @@ func runJulia(op string, args []string) error {
 // runVSCode 定位或清理 VS Code 的缓存。
 // 默认只清无状态缓存；workspaceStorage 需要 -a 明确要求。
 func runVSCode(op string, args []string) error {
-	all, dry, dataDir := false, false, ""
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-a", "--all":
-			all = true
-		case "-n", "--dry-run":
-			dry = true
-		case "--data-dir":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--data-dir needs a path")
-			}
-			dataDir = args[i+1]
-			i++
-		default:
-			return fmt.Errorf("unknown flag %q", args[i])
-		}
+	f := newFlagSet().
+		Bool("all", "-a").
+		Bool("dry-run", "-n").
+		Value("data-dir")
+	if err := f.parse(args); err != nil {
+		return err
 	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+	all, dry, dataDir := f.has("all"), f.has("dry-run"), f.value("data-dir")
 
 	dir, err := vscode.ResolveDataDir(dataDir)
 	if err != nil {
@@ -1012,34 +983,26 @@ func runVSCode(op string, args []string) error {
 // 默认即使缺命令也返回 0：缺命令是可预期状态（brew 在 Windows 上就是没有），
 // 需要门控时加 --strict。
 func cmdDoctor(args []string) error {
-	strict := false
-	for _, a := range args {
-		switch a {
-		case "--strict":
-			strict = true
-		default:
-			return fmt.Errorf("unknown flag %q", a)
-		}
+	f := newFlagSet().Bool("strict")
+	if err := f.parse(args); err != nil {
+		return err
 	}
+	if err := f.rejectPositional(); err != nil {
+		return err
+	}
+	strict := f.has("strict")
 
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	sh, err := targetShell("", nil)
-	if err != nil {
-		return err
-	}
-	isWin := sh.Name() == "pwsh"
-	root := gritRoot(isWin)
-
-	cu, err := custom.Load(filepath.Join(root, "custom.toml"))
+	ctx, err := resolveContext("")
 	if err != nil {
 		return err
 	}
 
-	rep := doctor.Check(cfg, cu, root, defaultsFS)
-	printDoctor(rep, root)
+	rep := doctor.Check(cfg, ctx.cu, ctx.root, defaultsFS)
+	printDoctor(rep, ctx.root)
 
 	plugins := 0
 	for _, e := range rep.Entries {

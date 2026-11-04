@@ -260,6 +260,16 @@ func guard(src, dst string) error {
 			return errors.New("refusing to write to the home directory itself")
 		}
 	}
+	// 目录动作先 RemoveAll(dst) 再 copyDir(src,dst)：dst 是 src 的祖先会连带
+	// 删掉源（自我清空），src 是 dst 的祖先会让 copyDir 自我递归。两种嵌套都拒。
+	// 用绝对路径比较，避免相对/绝对混用让 filepath.Rel 得出错误结论。
+	if absS, e1 := filepath.Abs(cs); e1 == nil {
+		if absD, e2 := filepath.Abs(cd); e2 == nil {
+			if ospath.Within(absD, absS) || ospath.Within(absS, absD) {
+				return fmt.Errorf("source %s and destination %s nest each other", absS, absD)
+			}
+		}
+	}
 	return nil
 }
 

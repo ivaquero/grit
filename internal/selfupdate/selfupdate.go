@@ -364,6 +364,21 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// readCapped 读出至多 maxBinary 字节；若解压结果超过上限就报错，
+// 而不是用 LimitReader 静默截断——被截断的二进制会以「校验和只覆盖归档、
+// 不覆盖解压结果」的名义蒙混安装，后果比直接失败更糟。
+// 多读 1 字节用于判断「是否还有更多」，不依赖归档头里可被伪造的 size 字段。
+func readCapped(r io.Reader) ([]byte, error) {
+	buf, err := io.ReadAll(io.LimitReader(r, maxBinary+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) > maxBinary {
+		return nil, fmt.Errorf("extracted binary exceeds the %d MiB limit", maxBinary>>20)
+	}
+	return buf, nil
+}
+
 // extractBinary 从归档里取出可执行文件。只认文件名，忽略目录。
 func extractBinary(data []byte, goos string) ([]byte, error) {
 	want := "grit"
@@ -393,7 +408,7 @@ func fromTarGz(data []byte, want string) ([]byte, error) {
 		if hdr.Typeflag != tar.TypeReg || filepath.Base(hdr.Name) != want {
 			continue
 		}
-		return io.ReadAll(io.LimitReader(tr, maxBinary))
+		return readCapped(tr)
 	}
 	return nil, fmt.Errorf("archive does not contain %s", want)
 }
@@ -412,7 +427,7 @@ func fromZip(data []byte, want string) ([]byte, error) {
 			return nil, err
 		}
 		defer rc.Close()
-		return io.ReadAll(io.LimitReader(rc, maxBinary))
+		return readCapped(rc)
 	}
 	return nil, fmt.Errorf("archive does not contain %s", want)
 }

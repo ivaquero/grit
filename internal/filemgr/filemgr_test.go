@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -183,6 +184,28 @@ func TestGuardRejectsHome(t *testing.T) {
 	}
 	if err := runFile(t, s, Catalyze, "cfg"); err == nil {
 		t.Fatal("expected guard to reject the home directory as a destination")
+	}
+}
+
+// 目录动作先 RemoveAll(dst) 再 copyDir(src,dst)：dst 是 src 的祖先会连带删源，
+// src 是 dst 的祖先会让 copyDir 自我递归。两个方向的嵌套都要拒，
+// 同时不能把普通兄弟路径误判为嵌套。
+func TestGuardRejectsNesting(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "outer")
+	child := filepath.Join(parent, "inner")
+
+	if err := guard(child, parent); err == nil || !strings.Contains(err.Error(), "nest") {
+		t.Fatalf("dst as ancestor of src must be rejected, got %v", err)
+	}
+	if err := guard(parent, child); err == nil || !strings.Contains(err.Error(), "nest") {
+		t.Fatalf("src as ancestor of dst must be rejected, got %v", err)
+	}
+
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	if err := guard(a, b); err != nil {
+		t.Fatalf("sibling paths must not trip the nesting guard: %v", err)
 	}
 }
 

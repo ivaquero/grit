@@ -396,6 +396,34 @@ func TestExtractBinaryMissing(t *testing.T) {
 	}
 }
 
+// 解压结果超过 maxBinary 时必须报错，而不是静默截断成 maxBinary 字节——
+// 截断后的二进制会绕过「校验和只覆盖归档、不覆盖解压结果」被安装。
+func TestReadCappedRejectsOversized(t *testing.T) {
+	// 恰好 maxBinary 字节：接受且原样返回。
+	buf, err := readCapped(io.LimitReader(zeroesReader{}, maxBinary))
+	if err != nil {
+		t.Fatalf("exact-limit read must succeed: %v", err)
+	}
+	if len(buf) != maxBinary {
+		t.Fatalf("len = %d, want %d", len(buf), maxBinary)
+	}
+
+	// 超过 maxBinary：拒绝。
+	if _, err := readCapped(zeroesReader{}); err == nil {
+		t.Fatal("oversized input must be rejected, not truncated")
+	}
+}
+
+// zeroesReader 无限供应零字，用于在不构造真实大文件的前提下触达上限分支。
+type zeroesReader struct{}
+
+func (zeroesReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
+
 func TestCleanupOld(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "grit")
