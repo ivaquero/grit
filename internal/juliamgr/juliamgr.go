@@ -231,6 +231,10 @@ func juliaArray(pkgs []string) string {
 	for _, p := range pkgs {
 		q := strings.ReplaceAll(p, `\`, `\\`)
 		q = strings.ReplaceAll(q, `"`, `\"`)
+		// Julia 双引号串会做 $/$(…) 插值：不转义 $，一个含 $(…) 的「包名」
+		// 会被当表达式求值。字符串里 \$ 代表字面 $。反斜杠已在上一步转义完，
+		// 这里补进去的反斜杠不会再被二次转义。
+		q = strings.ReplaceAll(q, "$", `\$`)
 		quoted = append(quoted, `"`+q+`"`)
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"

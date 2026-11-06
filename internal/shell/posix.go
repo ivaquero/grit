@@ -39,7 +39,7 @@ func (s *posix) Assoc(name string, pairs [][2]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "if [[ -n ${ZSH_VERSION:-} ]]; then typeset -gA %s; else declare -A %s; fi\n", name, name)
 	for _, kv := range pairs {
-		fmt.Fprintf(&b, "%s[%s]=%s\n", name, kv[0], posixQuote(kv[1]))
+		fmt.Fprintf(&b, "%s[%s]=%s\n", name, posixQuote(kv[0]), posixQuote(kv[1]))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

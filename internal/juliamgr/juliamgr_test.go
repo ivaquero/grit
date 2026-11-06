@@ -53,6 +53,19 @@ func TestPkgExprEscapesNames(t *testing.T) {
 	}
 }
 
+// Julia 的双引号串会做 $ 插值，包名里的 $ 必须转义成 \$，
+// 否则含 $(…) 的名字会被当表达式求值——即任意代码执行。
+func TestPkgExprEscapesDollar(t *testing.T) {
+	got, err := PkgExpr("add", []string{`a$b`, `$(x)`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `using Pkg; Pkg.add(["a\$b", "\$(x)"])`
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 // 短名、相对路径、绝对路径、@named 四种输入都要落到正确取值。
 func TestResolve(t *testing.T) {
 	dir := t.TempDir()

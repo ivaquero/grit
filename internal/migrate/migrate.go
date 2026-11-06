@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/ivaquero/grit/internal/custom"
@@ -57,13 +59,53 @@ func FromJSON(data []byte) (*custom.Config, error) {
 	return c, nil
 }
 
-// FromFile 读取并转换。
+// FromFile 读取并转换。未建模的顶层键会被静默丢弃，这里把它们挑出来告警，
+// 免得老用户 custom.json 里的字段无声消失。
 func FromFile(path string) (*custom.Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return FromJSON(b)
+	c, err := FromJSON(b)
+	if err != nil {
+		return nil, err
+	}
+	if unknown := UnknownTopLevel(b); len(unknown) > 0 {
+		fmt.Fprintf(os.Stderr, "grit: custom.json fields not recognized, skipped: %s\n",
+			strings.Join(unknown, ", "))
+	}
+	return c, nil
+}
+
+// knownLegacyKeys 反射 Legacy 的 json tag，避免新增字段时清单与结构漂移。
+func knownLegacyKeys() map[string]bool {
+	t := reflect.TypeOf(Legacy{})
+	out := make(map[string]bool, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
+		if name != "" && name != "-" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// UnknownTopLevel 返回 custom.json 里未被 Legacy 建模的顶层键（已排序）。
+// 解析失败时返回 nil：那是 FromJSON 的职责，这里不重复报错。
+func UnknownTopLevel(data []byte) []string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	known := knownLegacyKeys()
+	var out []string
+	for k := range m {
+		if !known[k] {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Render 生成带说明头的 TOML。

@@ -128,7 +128,7 @@ _grit_complete() {
             if (( CURRENT == 3 )); then
                 compadd -- ${(f)"$(grit complete plugins)"}
             elif (( CURRENT == 4 )); then
-                compadd -- ${(f)"$(grit complete state-actions $words[3])"}
+                compadd -- ${(f)"$(grit complete state-actions "${words[3]}")"}
             else
                 _files
             fi
@@ -137,7 +137,7 @@ _grit_complete() {
             if (( CURRENT == 3 )); then
                 compadd -- ${(f)"$(grit complete run-plugins)"}
             elif (( CURRENT == 4 )); then
-                compadd -- ${(f)"$(grit complete run-actions $words[3])"}
+                compadd -- ${(f)"$(grit complete run-actions "${words[3]}")"}
             else
                 _files
             fi

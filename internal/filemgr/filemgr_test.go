@@ -77,6 +77,17 @@ func TestBackup(t *testing.T) {
 	}
 }
 
+// oxides 里的 ../ 不能把备份目标写出备份根。
+func TestBackupRejectsTraversal(t *testing.T) {
+	s := newFileSet(t)
+	writeFile(t, s.Element["cfg"], "live")
+	s.Oxide["bkcfg"] = "../escape"
+
+	if err := runFile(t, s, Backup, "cfg"); err == nil {
+		t.Fatal("expected a traversal out of the backup root to be rejected")
+	}
+}
+
 func TestRestore(t *testing.T) {
 	s := newFileSet(t)
 	writeFile(t, backupPath(s), "from-backup")
@@ -142,6 +153,47 @@ func TestDirectoryCopyClearsDestination(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "stale.txt")); !os.IsNotExist(err) {
 		t.Fatal("stale file survived the directory copy")
+	}
+}
+
+// 成功替换后不应残留 .grit-tmp / .grit-old 脚手架目录。
+func TestPlaceDirLeavesNoScratch(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	writeFile(t, filepath.Join(src, "new.txt"), "new")
+	writeFile(t, filepath.Join(dst, "stale.txt"), "old")
+
+	if err := placeDir(src, dst); err != nil {
+		t.Fatalf("placeDir: %v", err)
+	}
+	if got := readFile(t, filepath.Join(dst, "new.txt")); got != "new" {
+		t.Fatalf("new content missing: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "stale.txt")); !os.IsNotExist(err) {
+		t.Fatal("old content survived the swap")
+	}
+	for _, scratch := range []string{dst + ".grit-tmp", dst + ".grit-old"} {
+		if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+			t.Fatalf("scratch dir left behind: %s", scratch)
+		}
+	}
+}
+
+// 拷贝中途失败时，旧目标必须原样保留，且不留临时目录。
+func TestPlaceDirKeepsOldOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "target")
+	writeFile(t, filepath.Join(dst, "keep.txt"), "old")
+
+	if err := placeDir(filepath.Join(dir, "nope-src"), dst); err == nil {
+		t.Fatal("expected the copy to fail for a missing source")
+	}
+	if got := readFile(t, filepath.Join(dst, "keep.txt")); got != "old" {
+		t.Fatalf("old destination was not preserved: %q", got)
+	}
+	if _, err := os.Stat(dst + ".grit-tmp"); !os.IsNotExist(err) {
+		t.Fatal("stale .grit-tmp left behind after failure")
 	}
 }
 

@@ -133,6 +133,18 @@ func TestMalformedJSON(t *testing.T) {
 	}
 }
 
+// 未被 Legacy 建模的顶层键要能被挑出来告警；
+// legacyJSON 里唯一未建模的就是 description（有意不迁移）。
+func TestUnknownTopLevel(t *testing.T) {
+	got := UnknownTopLevel([]byte(legacyJSON))
+	if len(got) != 1 || got[0] != "description" {
+		t.Fatalf("unknown keys = %v, want [description]", got)
+	}
+	if u := UnknownTopLevel([]byte(`{"oxide_folder": "x", "proxy_ports": {}}`)); len(u) != 0 {
+		t.Fatalf("expected no unknown keys, got %v", u)
+	}
+}
+
 // slash 只处理分隔符，不动其他字符。
 func TestSlash(t *testing.T) {
 	if got := slash(`D:\a\b`); got != "D:/a/b" {

@@ -467,6 +467,12 @@ func install(exe string, data []byte) error {
 		tmp.Close()
 		return err
 	}
+	// rename 只保证元数据原子，不保证数据已落盘；先 Sync 再改名，
+	// 免得崩溃/掉电后装入一个截断或空的二进制。
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("flush new binary: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}

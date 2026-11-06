@@ -113,18 +113,18 @@ func TestAssoc(t *testing.T) {
 	posix, _ := Get("bash")
 	pairs := [][2]string{{"zs", "/root/.zshrc"}, {"bs", "'quoted'"}}
 	got := posix.Assoc("GRIT_ELEMENT", pairs)
-	// 声明行 + 每个键值一行，值走 posixQuote 单引号包裹。
+	// 声明行 + 每个键值一行，键与值都走 posixQuote 单引号包裹。
 	if !strings.Contains(got, "declare -A GRIT_ELEMENT") {
 		t.Fatalf("posix assoc missing declare: %q", got)
 	}
-	if !strings.Contains(got, "GRIT_ELEMENT[zs]='/root/.zshrc'") {
+	if !strings.Contains(got, "GRIT_ELEMENT['zs']='/root/.zshrc'") {
 		t.Fatalf("posix assoc missing pair: %q", got)
 	}
-	// 含单引号的值必须被安全转义，不能提前闭合外层引号。
-	// 这里锁定的是「Assoc 用与 Quote 相同的方式包裹值」这一契约，
+	// 含单引号的值必须被安全转义，不能提前闭合外层引号；键同样加引号，
+	// 与 pwsh.Assoc 对齐。这里锁定的是「Assoc 用 Quote 同时包裹键与值」这一契约，
 	// 具体转义序列由 TestQuoteSafety 独立验证。
-	if want := "GRIT_ELEMENT[bs]=" + posix.Quote("'quoted'"); !strings.Contains(got, want) {
-		t.Fatalf("posix assoc did not wrap value via Quote: got %q want substring %q", got, want)
+	if want := "GRIT_ELEMENT[" + posix.Quote("bs") + "]=" + posix.Quote("'quoted'"); !strings.Contains(got, want) {
+		t.Fatalf("posix assoc did not wrap key/value via Quote: got %q want substring %q", got, want)
 	}
 
 	pw, _ := Get("pwsh")

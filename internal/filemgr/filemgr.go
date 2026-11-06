@@ -97,7 +97,7 @@ func Run(s Set, action Action, keys []string, opt Options) error {
 func (s Set) do(action Action, key string, opt Options) Result {
 	res := Result{Key: key}
 
-	src, dst, fromDefaults, err := s.resolve(action, key)
+	src, dst, fromDefaults, within, err := s.resolve(action, key)
 	if err != nil {
 		res.Skip = err.Error()
 		return res
@@ -107,6 +107,14 @@ func (s Set) do(action Action, key string, opt Options) Result {
 	if err := guard(src, dst); err != nil {
 		res.Err = err
 		return res
+	}
+	// 落在备份根里的动作（backup / propagate）先确认 dst 真的还在根内：
+	// oxides 里写歪的 "../" 不能把写入或 RemoveAll 导向备份根之外。
+	if within != "" {
+		if err := checkWithin(within, dst); err != nil {
+			res.Err = err
+			return res
+		}
 	}
 
 	if fromDefaults {
@@ -180,7 +188,8 @@ func copyReader(r io.Reader, dst string, mode fs.FileMode) error {
 
 // resolve 按动作把 key 映射到源与目标。
 // fromDefaults 为真时表示源在 Set.Defaults 里，而不是本地磁盘。
-func (s Set) resolve(action Action, key string) (string, string, bool, error) {
+// within 非空时是 dst 必须落在其中的根目录（备份根），供 checkWithin 兜底。
+func (s Set) resolve(action Action, key string) (string, string, bool, string, error) {
 	bkKey := "bk" + key
 	grKey := "gr" + key
 
@@ -196,48 +205,64 @@ func (s Set) resolve(action Action, key string) (string, string, bool, error) {
 	case Backup:
 		src, err := need(s.Element, key, "element")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
 		rel, err := need(s.Oxide, bkKey, "oxides")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
-		return src, ospath.Join(s.Backup, rel, s.IsWin), false, nil
+		return src, ospath.Join(s.Backup, rel, s.IsWin), false, s.Backup, nil
 
 	case Restore:
 		rel, err := need(s.Oxide, bkKey, "oxides")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
 		dst, err := need(s.Element, key, "element")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
-		return ospath.Join(s.Backup, rel, s.IsWin), dst, false, nil
+		// 目标是真实配置位置，不受备份根约束。
+		return ospath.Join(s.Backup, rel, s.IsWin), dst, false, "", nil
 
 	case Catalyze:
 		src, err := need(s.Oxygen, grKey, "oxygen")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
 		dst, err := need(s.Element, key, "element")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
-		return src, dst, true, nil
+		return src, dst, true, "", nil
 
 	case Propagate:
 		src, err := need(s.Oxygen, grKey, "oxygen")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
 		rel, err := need(s.Oxide, bkKey, "oxides")
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, "", err
 		}
-		return src, ospath.Join(s.Backup, rel, s.IsWin), true, nil
+		return src, ospath.Join(s.Backup, rel, s.IsWin), true, s.Backup, nil
 	}
-	return "", "", false, fmt.Errorf("unknown action %q", action)
+	return "", "", false, "", fmt.Errorf("unknown action %q", action)
+}
+
+// checkWithin 要求 dst 落在 root 之内。oxides 里的 "../" 或写歪的绝对路径
+// 都可能把写入/删除导向备份根之外，这里默认拒绝，只放行根内的目标。
+// 无法判定绝对路径时不在此处报错，交给 guard 的其余兜底。
+func checkWithin(root, dst string) error {
+	absRoot, err1 := filepath.Abs(filepath.Clean(root))
+	absDst, err2 := filepath.Abs(filepath.Clean(dst))
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	if !ospath.Within(absRoot, absDst) {
+		return fmt.Errorf("destination %s escapes the backup root %s", absDst, absRoot)
+	}
+	return nil
 }
 
 // guard 拒绝会让 RemoveAll 落到危险位置的组合。
@@ -275,15 +300,60 @@ func guard(src, dst string) error {
 
 func place(src, dst string, isDir bool) error {
 	if isDir {
-		if err := os.RemoveAll(dst); err != nil {
-			return fmt.Errorf("clear destination: %w", err)
-		}
-		return copyDir(src, dst)
+		return placeDir(src, dst)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("create parent: %w", err)
 	}
 	return copyFile(src, dst)
+}
+
+// placeDir 原子地替换目录：先把整棵树拷进同目录的临时名，成功后才换名就位。
+// 旧的先挪去 .old → 临时目录改名成正式名 → 删旧。任一步失败都把 .old 还原，
+// 绝不留下「旧的已删、新的又没拷全」。用同级临时名保证每次 rename 都在同一文件系统、可原子完成。
+func placeDir(src, dst string) error {
+	parent := filepath.Dir(dst)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("create parent: %w", err)
+	}
+	tmp := dst + ".grit-tmp"
+	old := dst + ".grit-old"
+
+	// 先清掉上次崩溃可能残留的临时/旧目录，否则换名会撞上已存在的目标。
+	if err := os.RemoveAll(tmp); err != nil {
+		return fmt.Errorf("clear stale temp: %w", err)
+	}
+	if err := os.RemoveAll(old); err != nil {
+		return fmt.Errorf("clear stale old: %w", err)
+	}
+
+	if err := copyDir(src, tmp); err != nil {
+		os.RemoveAll(tmp) // 拷坏的半成品不留在下次运行里
+		return err
+	}
+
+	hadOld := false
+	if _, err := os.Lstat(dst); err == nil {
+		if err := os.Rename(dst, old); err != nil {
+			os.RemoveAll(tmp)
+			return fmt.Errorf("park current destination: %w", err)
+		}
+		hadOld = true
+	}
+
+	if err := os.Rename(tmp, dst); err != nil {
+		if hadOld {
+			os.Rename(old, dst) // 尽力回滚，让旧目录先回来
+		}
+		os.RemoveAll(tmp)
+		return fmt.Errorf("install new destination: %w", err)
+	}
+
+	if hadOld {
+		// 新数据已成功就位，清理旧目录失败不影响结果。
+		_ = os.RemoveAll(old)
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {
